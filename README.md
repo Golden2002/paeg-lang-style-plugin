@@ -59,6 +59,44 @@ sys.path.insert(0, "/path/to/paeg-lang-style-plugin/src")
 
 要求 Python 3.9+。零第三方运行时依赖。
 
+## 以 MCP server 方式接入（像 MCP 一样直接安装即可用）
+
+> 可及性标准（§3.109）：任何项目 `pip install` 后，在 MCP 客户端配置声明即可接入——**零代码桥、零宿主依赖**。
+
+```bash
+# 方式 1：console_scripts 入口（pip install 后）
+paeg-lang-style-mcp
+
+# 方式 2：python -m 入口（源码运行）
+python -m paeg_lang_style.mcp_server
+```
+
+**MCP 客户端配置声明**（如 config/mcp_servers.json）：
+
+```json
+{
+  "mcpServers": {
+    "paeg-lang-style": {
+      "command": "python",
+      "args": ["-m", "paeg_lang_style.mcp_server"],
+      "cwd": "D:/wbo-workspace/paeg_project/paeg-lang-style-plugin"
+    }
+  }
+}
+```
+
+**暴露的 MCP 工具（7 个）**：
+
+| 工具名 | 功能 | read/write |
+|---|---|---|
+| `normalize_text` | 文本语言规范守门（L0 规则 + L2 重写） | read |
+| `language_policy_check` | AI 味检测 + 违禁词命中报告 | read |
+| `forbidden_words` | 动态违禁词库管理（增/删/查） | write |
+| `check_grammar` | 语法检查（8 类规则） | read |
+| `check_ai_taste` | AI 味 5 维信号 | read |
+| `build_style_prompt` | 系统提示词拼装（谁用都拼） | read |
+| `list_rules` | 可扩充规则集清单 | read |
+
 ## 快速开始
 
 **三步走**：安装 → 拼提示词 → 处理输出。
