@@ -1,355 +1,415 @@
-# paeg-lang-style — PAEG 语言规范插件
+# paeg-lang-style
 
-> 可拆卸、可独立、可接入教育智能体的**中文语言规范模块**。
-> 从 PAEG 教育智能体（v0.12-v0.71 迭代）提取，改造为**零宿主依赖**的独立插件。
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-75%2F75%20%E2%9C%93-brightgreen.svg)](tests/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Golden2002/paeg-lang-style-plugin/pulls)
 
-语言规范模块包含三大能力（用户需求 ⭐）：
+<p align="center">
+  <strong>paeg-lang-style</strong> — 中文语言规范插件：可扩展规则集 + 动态违禁词库 + LLM 输出重写
+  <br>
+  <em>让 AI 生成的中文"像人话"——规范、朴素、有力量。可拆卸、可独立、可接入任何智能体。</em>
+</p>
 
-| 能力 | 实现 | 说明 |
-|---|---|---|
-| **1. 系统提示词约束** | `paeg_lang_style/prompts/language_style.py` | 从**词法、句法规则**约束 LLM 输出 |
-| **2. 动态违禁词库** | `paeg_lang_style/forbidden.py` | 动态维护的违禁词库（运行时增删 + 外部 JSON 热加载） |
-| **3. 重写大模型输出的工具** | `paeg_lang_style/refiner.py` | LLM 输出后处理（病句修正 + AI 味检测 + 多轮 Self-Refine） |
+<p align="center">
+  <a href="https://github.com/Golden2002/paeg-lang-style-plugin">📖 GitHub</a> •
+  <a href="https://github.com/Golden2002/paeg-lang-style-plugin/issues">🐛 报告问题</a>
+</p>
+
+> **中文** | [English](README.en.md)
 
 ---
 
-## 快速开始
+## 这是什么
+
+`paeg-lang-style` 是**中文语言规范模块**——三层架构（用户要求 ⭐）：
+
+| 层 | 能力 | 核心文件 |
+|---|---|---|
+| **语法规则约束**（最重要） | 词法/句法/标点规则作为**系统提示词**，指挥 LLM 使用完整的词、完整的句法、充分的状语——谁用都拼 | `rule_registry.py` + `prompts/builder.py` |
+| **违禁词兜底** | 动态维护的违禁词库（AI 腔/空洞大词/伪共情/廉价鼓励/网络用语），防 LLM 不听话时的底线 | `forbidden.py` |
+| **改写脚本** | LLM 输出后处理：检测命中规则 → 反馈带规则 ID → 多轮 Self-Refine 重写 | `refiner.py` + `gate.py` |
+
+源自 PAEG 教育智能体（v0.12-v0.71 迭代），改造为**零宿主依赖**的独立插件——任何 Python 项目都能接入。
+
+## ✨ 核心特性
+
+- 📜 **可扩充规则集**：规则外置 `data/rules.json`，追加即热加载（`RuleRegistry`）
+- 🧠 **通则指挥 LLM**：词法完整/句法完整/充分状语通则让 LLM 泛化，而非逐词记忆（避免"只把倦优化成疲倦"的狭隘性）
+- 🛡️ **确定性兜底**：列举层规则（"我在这里听着你。"→"我就在这里听你说说。"）防 LLM 不听话
+- 🔁 **规则 ID 反馈闭环**：改写反馈带"违反 #rule-lx-001"，形成规则↔生成↔反馈闭环
+- 🚫 **动态违禁词库**：运行时增删 + 外部 JSON 热加载
+- 🔧 **注入式设计**：`chat_fn` 强制注入——接入你自己的 LLM 调用，零宿主耦合
+- 🎯 **profile 三档**：general / teaching / confessional——按场景拼装系统提示词
+- 📏 **AI 味检测**：句长变异/过渡词密度/三段式/破折号/段落对称 5 维信号
+- 🇨🇳 **8+ 语法规则**：GB/T 15834 标点规范 + 病句六类 + 教学语言规范
+- ✅ **75 项测试**全绿 + 20 段行为一致性（vs PAEG 原实现字符串相等）
+
+## 📦 安装
 
 ```bash
-# 独立运行（无需安装）
-cd paeg-lang-style-plugin
-python demo.py                    # 规则层演示
-python demo.py --with-llm         # LLM 重写演示（注入 chat_fn）
+# 方式 1：pip 安装（推荐）
+pip install -e /path/to/paeg-lang-style-plugin
 
-# 安装为 Python 包
-pip install -e .
-
-# 测试
-python -m pytest tests/ -q
+# 方式 2：直接引用（零安装）
+# 把 src/ 加入 sys.path 即可
+import sys
+sys.path.insert(0, "/path/to/paeg-lang-style-plugin/src")
 ```
+
+要求 Python 3.9+。零第三方运行时依赖。
+
+## 🚀 快速开始
+
+**三步走**（FastAPI 风格）：安装 → 拼提示词 → 处理输出。
 
 ```python
-from paeg_lang_style import (
-    gate_content,          # 生成内容语言规范守门（L0+L2）
-    gate_short,            # 短文本语言守门（仅 L0）
-    make_refiner,          # 重写工具工厂（注入 chat_fn）
-    get_style_prompt,      # 系统提示词（weil/lexicon/syntax/forbidden 分段）
-    fix_known_gaffes,      # 病句确定性修正
-    check_ellipsis,        # 语法检查
-    detect_ai_taste,       # AI 味检测
-    ForbiddenWords,        # 动态违禁词库
-)
+from paeg_lang_style import RuleRegistry, make_refiner, gate_content
 
-# 1. 系统提示词约束（词法/句法规则约束 LLM）
-system = get_style_prompt("all")                    # 全量
-system = get_style_prompt("syntax")                 # 仅句法段
-system = get_style_prompt(["weil", "lexicon"])      # 多段拼接
+# Step 1: 语法规则拼进你的系统提示词（谁用都拼）
+system_prompt = "你是教育智能体，负责讲解数学概念。"
+system_prompt += RuleRegistry().build_prompt("teaching")   # 通则层指挥 LLM
 
-# 2. 动态违禁词库
-fb = ForbiddenWords()
-fb.add("新禁词")          # 运行时新增（动态维护）
-fb.load_json("path.json") # 外部 JSON 热加载
-hits = fb.detect(text)    # 检测命中
+# Step 2: 注入你的 LLM 调用（改写脚本）
+def my_llm(system, user, max_tokens=800, **kw):
+    return call_my_llm_api(system, user, max_tokens=max_tokens)
 
-# 3. 重写 LLM 输出（注入自己的 LLM 调用包装）
-def my_chat(system, user, max_tokens=800, **kw):
-    return call_my_llm(system, user, max_tokens=max_tokens)
+refiner = make_refiner(chat_fn=my_llm)
 
-refiner = make_refiner(chat_fn=my_chat)   # ⭐ 强制注入，插件独立可用
-refined = refiner.refine(llm_output)
-
-# 4. 守门入口（生成链路统一收口）
-out = gate_content(text)                                  # 纯规则（L0 快路径）
-out = gate_content(text, refiner=refiner)                 # L0 + L2 深度矫正
+# Step 3: LLM 输出后处理（L0 规则 + L2 重写）
+raw_output = "总的来说，让我们一起赋能这个时代！"
+clean = gate_content(raw_output, refiner=refiner)
+# → "我们把这个时代里的每一个孩子，把他们的潜能一步步唤起。"
 ```
 
----
+## 📖 目录
 
-## 架构
+- [核心概念](#核心概念)
+- [外部项目接入指南](#外部项目接入指南)
+- [可扩展性](#可扩展性)
+- [可维护性](#可维护性)
+- [内置语法规则](#内置语法规则)
+- [违禁词库](#违禁词库)
+- [API 参考](#api-参考)
+- [配置参考](#配置参考)
+- [架构设计](#架构设计)
+- [与 PAEG 主项目集成](#与-paeg-主项目集成)
+- [测试](#测试)
+- [贡献指南](#贡献指南)
+- [更新日志](#更新日志)
+- [许可证](#许可证)
 
+## 💡 核心概念
+
+**三层架构 + 规则集数据模型**——可扩充性贯穿规则定义/检测/提示词生成三处：
+
+```mermaid
+graph LR
+    A[LLM 生成文本] --> B[gate_content 守门]
+    B --> C{L0 规则检测}
+    C -->|命中列举层| D[确定性替换<br/>听着你→听你说说]
+    C -->|通则触发| E[L2 refiner.refine<br/>chat_fn 注入 LLM]
+    E --> F[反馈带规则 ID<br/>违反 #rule-lx-001]
+    F --> G[多轮 Self-Refine]
+    D --> H[输出]
+    G --> H
+    H --> I[收口: 规则再跑一遍]
 ```
-paeg-lang-style-plugin/
-├── pyproject.toml              # 独立包（MIT）
-├── demo.py                     # 独立运行 demo（不依赖 PAEG）
-├── README.md                   # 本文件：架构 + 每条语法规则
-├── SKILL.md                    # Agent Skills 标准（渐进披露 3 层）
-├── src/paeg_lang_style/
-│   ├── __init__.py             # 对外 API（gate_content / make_refiner / ...）
-│   ├── rules.py                # 列举式规则（确定性兜底：倦→疲倦、听着你→听你说说）
-│   ├── rules_enhanced.py       # 通则化检测（指挥 LLM 泛化：词法/句法完整通则）
-│   ├── rule_registry.py        # ⭐ 可扩充规则集（Rule 模型 + JSON 热加载 + profile 拼装）
-│   ├── ai_taste.py             # AI 味检测（句长变异/过渡词/三段式/破折号）
-│   ├── forbidden.py            # 动态违禁词库（运行时增删 + JSON 热加载）
-│   ├── refiner.py              # 改写脚本（注入式 chat_fn，规则 ID 反馈闭环）
-│   ├── gate.py                 # 守门入口（L0+L2 三层，注入式解耦）
-│   └── prompts/
-│       ├── builder.py          # ⭐ profile 动态拼装系统提示词（general/teaching/confessional）
-│       └── language_style.py   # 语言风格提示词（weil/lexicon/syntax/forbidden 四段）
-├── data/
-│   ├── rules.json              # ⭐ 可扩充语法规则集（用户追加即热加载）
-│   ├── forbidden_words.json    # 外部违禁词库（动态维护）
-│   └── weil_corpus.json        # 语料 few-shot（可替换为中性语料）
-├── docs/
-│   ├── architecture.md         # 架构图 + 数据流
-│   ├── integration_paeg.md     # 接入 PAEG 指南
-│   └── samples_20.md           # 20 段 LLM 直生成 vs 处理后对比
-└── tests/                      # 67 项测试（含规则集/通则/一致性）
-```
 
-### 三层架构（用户要求 ⭐：语法规则约束 + 违禁词兜底 + 改写脚本）
+**规则数据模型**（`Rule`——外置 JSON 可扩充）：
 
-| 层 | 模块 | 定位 | 可扩充性 |
-|---|---|---|---|
-| **语法规则约束**（最重要） | `rule_registry.py` + `prompts/builder.py` | **系统提示词核心，谁用都拼**——通则层指挥 LLM 泛化（用完整词/完整句法），列举层确定性兜底 | ⭐ 规则集外置 `data/rules.json`，追加即热加载 |
-| **违禁词兜底** | `forbidden.py` | 防 LLM 不听话时的底线（AI 腔/空洞大词/伪共情/廉价鼓励/网络用语） | ⭐ 运行时增删 + JSON 热加载 |
-| **改写脚本** | `refiner.py` | LLM 输出后处理（检测命中规则 → 反馈带规则 ID → 多轮 Self-Refine） | 规则集扩充自动接入检测/反馈 |
-
-### 可扩充规则集（RuleRegistry ⭐ 核心设计）
-
-**Rule 数据模型**（外置 JSON，可扩充）：
 ```json
 {
   "id": "rule-lx-general-001",
-  "type": "general",              // general=通则（指挥 LLM）/ explicit=列举（确定性兜底）
-  "category": "lexical",          // lexical / syntactic / punctuation / register
-  "pattern": "正则（检测用）",
-  "replacement": "替换文本（列举层确定性）",
-  "message": "修正建议（反馈 LLM）",
-  "prompt_block": "通则提示词段落（拼进系统提示词）",
+  "type": "general",
+  "category": "lexical",
+  "pattern": "(倦|乏|沉|累|苦|慌|虚|弱|低|烦|闷|困|急|乱)",
+  "replacement": null,
+  "message": "存在单字状态词——应扩展为完整双字词形",
+  "prompt_block": "### 词法完整通则（指挥 LLM 泛化）...",
   "severity": "high",
   "enabled": true,
-  "source": "builtin",           // builtin / user
+  "source": "builtin",
   "profile_tags": ["general", "teaching", "confessional"]
 }
 ```
 
-**可扩充方式**（用户要求 ⭐）：
+- **`type: "general"`（通则层）**：`prompt_block` 拼进系统提示词，指挥 LLM 泛化——"凡表达状态/感受的单字形容词一律扩展为完整双字词形（倦/乏/沉/累/苦/慌/虚/弱/低/烦/闷/困/急/乱）"。LLM 自行泛化到未列举词，而非只修"倦→疲倦"。
+- **`type: "explicit"`（列举层）**：`pattern + replacement` 确定性兜底——LLM 不听话时的最后防线。
+
+## 🔌 外部项目接入指南
+
+> 用户要求 ⭐：**任何项目/智能体**想使用我们的语法规则模块，该怎么做？
+
+### 场景 A：只想用"语法规则约束"（系统提示词）
+
 ```python
 from paeg_lang_style import RuleRegistry
-reg = RuleRegistry()                 # 内置规则
-reg.load("data/rules.json")          # 合并用户扩展规则（追加即生效）
-reg.add_rule({...})                  # 运行时新增
-reg.watch("data/rules.json")         # mtime 热重载
-reg.check_reload()                   # 每次调用前检查
 
-# 谁用都拼（语法规则作为系统提示词核心）
-prompt = reg.build_prompt("teaching")       # 教学档
-prompt = reg.build_prompt("confessional")   # 倾诉档
-prompt = reg.build_prompt("general")        # 通用档
+# 语法规则拼进自己的系统提示词（谁用都拼）
+system = "你是我的客服机器人。"
+system += RuleRegistry().build_prompt("general")   # 或 "teaching" / "confessional"
 ```
 
-**设计哲学**（用户关切 ⭐ 避免狭隘性）：
-- **通则层指挥 LLM 泛化**：`prompt_block` 写"凡表达状态/感受的单字形容词一律扩展为完整双字词形（倦/乏/沉/累/苦/慌/虚/弱/低/烦/闷/困/急/乱）"——LLM 自行泛化到未列举词，而非只修"倦→疲倦"
-- **列举层确定性兜底**：LLM 不听话时的最后防线（"我在这里听着你"→"我就在这里听你说说"）
-- **规则 ID 反馈闭环**：改写反馈带规则编号（"违反 #rule-lx-007…"），形成规则↔生成↔反馈闭环
+`build_prompt(profile)` 返回的规则片段（词法完整通则/句法完整通则/充分状语通则/标点规范），
+直接拼接进你的 LLM system prompt。这是"指挥 LLM 使用完整词"的本质——不依赖我们的重写器。
 
-### 三大架构模式（librarian 调研应用）
+### 场景 B：想用"改写脚本"处理 LLM 输出
 
-| 模式 | 来源范式 | 插件实现 |
+```python
+from paeg_lang_style import make_refiner, gate_content
+
+# 注入你自己的 LLM 调用包装（chat_fn 强制注入，零宿主耦合）
+def my_chat(system, user, max_tokens=800, **kw):
+    return call_your_llm(system, user, max_tokens=max_tokens)
+
+refiner = make_refiner(chat_fn=my_chat)
+clean = gate_content(your_llm_output, refiner=refiner)   # L0 规则 + L2 重写
+# 纯规则（不调 LLM）：
+clean = gate_content(your_llm_output)                    # 病句/违禁词确定性修正
+```
+
+### 场景 C：想用"违禁词库"
+
+```python
+from paeg_lang_style import ForbiddenWords
+
+fb = ForbiddenWords()                     # 内置违禁词（AI 腔/空洞大词/伪共情/网络用语）
+fb.load_json("my_words.json")             # 合并你自己的词库（动态扩充）
+fb.add("你们公司的禁词")                  # 运行时新增
+hits = fb.detect(text)                    # → ["禁词1", "禁词2"]
+```
+
+### 场景 D：想扩充规则（可扩展性 ⭐）
+
+编辑 `data/rules.json`，追加一条规则即热加载：
+
+```json
+{
+  "rules": [
+    {
+      "id": "rule-my-001",
+      "type": "explicit",
+      "category": "lexical",
+      "pattern": "你们行业的黑话",
+      "replacement": "规范说法",
+      "message": "这是行业黑话，应改规范",
+      "severity": "medium",
+      "enabled": true,
+      "source": "user",
+      "profile_tags": ["general"]
+    }
+  ]
+}
+```
+
+```python
+reg = RuleRegistry()
+reg.load("data/rules.json")    # 合并（追加即生效）
+reg.watch("data/rules.json")   # mtime 变更自动热重载
+reg.check_reload()             # 每次调用前检查
+```
+
+### 场景 E：完整接入（含规则 ID 反馈闭环）
+
+```python
+from paeg_lang_style import RuleRegistry, make_refiner, gate_content, get_style_prompt
+
+# 1. 系统提示词（规则 + 风格）
+system = get_style_prompt("all") + "\n" + RuleRegistry().build_prompt("general")
+
+# 2. 改写器（规则检测 → 反馈带 ID → 重写）
+refiner = make_refiner(chat_fn=my_chat)
+
+# 3. 守门（L0 规则 + L2 重写 + 收口）
+final = gate_content(raw, refiner=refiner)
+```
+
+## 🧩 可扩展性
+
+| 扩展点 | 方式 | 机制 |
 |---|---|---|
-| 规则声明式 + 模式匹配引擎 | LanguageTool（grammar.xml 规则） | `rule_registry.py`（Rule 数据模型 + pattern 检测） |
-| 算法式度量 | textstat（语言特定公式） | `ai_taste.py`（burstiness/marker_density 等） |
-| 中文特化预处理 | jieba + LTP（分词驱动） | `rules.py` 正则分句检测（零依赖版） |
-| 渐进披露 3 层 | Agent Skills 标准 | `SKILL.md`（L1 入口）+ `docs/`（L2 规则页）+ `data/`（L3 数据） |
-| 标点规范 | GB/T 15834-2011 | `rule-pn-*` 标点规则（句末点号/顿号vs逗号/说后逗号） |
+| **语法规则** | 编辑 `data/rules.json` 追加 `Rule` | `RuleRegistry.load()` 合并 + `watch()` 热重载 + `PAEG_RULES_PATH` 环境变量覆盖路径 |
+| **违禁词** | `ForbiddenWords.load_json("自定义.json")` / `add()` / `remove()` | 运行时动态维护 |
+| **语料** | 替换 `data/weil_corpus.json` 为中性语料 | 构造时 `corpus_path` 参数 |
+| **profile** | 新增规则时加 `profile_tags` | `build_prompt(profile)` 按场景过滤 |
+| **LLM 后端** | 注入任意 `chat_fn` | 强制注入，零宿主耦合 |
+| **规则 ID 契约** | 规则 `id` 稳定，反馈引用 | 规则↔生成↔反馈闭环，便于 telemetry |
 
-### 数据流
+## 🛠️ 可维护性
+
+- **零宿主依赖**：不 import 任何宿主项目模块，独立可测
+- **旧 API 兼容**：`rules.py`/`rules_enhanced.py` 保留为薄包装，向后兼容
+- **75 项测试**：规则集加载/热重载/检测/拼装/用户扩充/损坏容错全覆盖
+- **行为一致性**：20 段样本 vs PAEG 原实现字符串相等（零漂移）
+- **损坏容错**：JSON 损坏时保留上一份规则集，绝不"清空跑"
+- **防膨胀**：`token_budget` 控制系统提示词长度（默认 800）
+- **模式清晰**：通则层（指挥 LLM）与列举层（确定性兜底）职责分离
+
+## 📚 内置语法规则
+
+| ID | 类型 | 类别 | 规则 | 触发模式 | 修正 |
+|---|---|---|---|---|---|
+| `rule-lx-general-001` | 通则 | 词法 | 词法完整 | 单字状态词（倦/乏/沉/累/苦/慌/虚/弱/低/烦/闷/困/急/乱） | 扩展完整双字词形 |
+| `rule-sx-general-001` | 通则 | 句法 | 句法完整 | 主谓宾/动宾/介词/复合句 | 成分齐全 |
+| `rule-sx-general-002` | 通则 | 句法 | **充分状语** | 动词开头短句/孤零零单动词 | 补时间/地点/方式/条件/对象/目的状语 |
+| `rule-pn-general-001` | 通则 | 标点 | 标点规范（GB/T 15834） | 顿号vs逗号/说后冒号 | 标点规范 |
+| `rule-lx-001` | 列举 | 词法 | 倦→疲倦 | `觉得倦了\|感到倦\|已倦` | 确定性替换 |
+| `rule-lx-002` | 列举 | 词法 | 乏→疲乏 | `的乏($\|[，。；])` | 确定性替换 |
+| `rule-lx-003` | 列举 | 词法 | 道出→说出来 | `道出` | 确定性替换 |
+| `rule-lx-004` | 列举 | 词法 | 探知→探索并了解 | `探知` | 确定性替换 |
+| `rule-sx-001~004` | 列举 | 句法 | "听着你"悬空 | `(我在这里\|在这里\|我)?听着你` + 句末 | 听你说说 |
+| `rule-sx-005` | 列举 | 句法 | 悬空宾语 | `与你探讨$` 等 | 补宾语 |
+| `rule-sx-006` | 列举 | 句法 | 动宾搭配 | `带着(重量\|分量)` | 有很重的分量 |
+| `rule-sx-007` | 列举 | 句法 | 翻译腔冗余 | `进行(一个)?(分析\|讨论\|思考)` | 直接说动词 |
+| `rule-pn-001` | 列举 | 标点 | 说后逗号 | `说："` | 改用逗号 |
+
+**充分状语通则详情**（rule-sx-general-002 ⭐ 用户新增）：
+
+> 每个动作/判断用充分的状语交代清楚——时间、地点、方式、条件、对象、目的。
+> ❌ "复习单词。" → ✅ "你可以在每天睡前用十分钟复习单词。"
+> ❌ "使用这个软件。" → ✅ "你可以在每天固定的时间使用这个软件。"
+
+## 🚫 违禁词库
+
+| 类别 | 示例 |
+|---|---|
+| AI 腔套话 | 总的来说 / 综上所述 / 值得注意的是 / 让我们一起 |
+| 空洞大词 | 赋能 / 点亮 / 激活 / 重塑 / 升级 / 全方位 |
+| 伪共情动词 | 接住（情绪）/ 托住 / 兜住 / 我懂你 / 心疼你 |
+| 廉价鼓励 | 加油 / 你真棒 / 你一定可以 |
+| 低劣网络用语 | yyds / 绝绝子 / 栓Q / 破防 / 内卷 / 躺平 / 宝子 |
+| 空洞赞美形容词 | 深刻 / 全面 / 系统 / 本质 |
+
+**扩充方式**：`ForbiddenWords().load_json("path.json")`——JSON 结构 `{"extra_forbidden": [...], "ai_tells_extra": [...]}`。
+
+## 📚 API 参考
+
+### `RuleRegistry`
+
+| 方法 | 签名 | 说明 |
+|---|---|---|
+| `all()` | `() -> list[Rule]` | 全部规则 |
+| `by_id(id)` | `(str) -> Rule\|None` | 按 ID 查规则 |
+| `add_rule(rule)` | `(dict) -> bool` | 运行时新增（同 ID 覆盖内置） |
+| `remove_rule(id)` | `(str) -> bool` | 运行时移除 |
+| `load(path)` | `(str\|None) -> int` | 合并外部 JSON（热加载） |
+| `watch(path)` | `(str\|None) -> None` | mtime 监听 |
+| `check_reload()` | `() -> bool` | 检查并重载 |
+| `detect(text, profile)` | `(str, str\|None) -> list[Rule]` | 检测命中规则 |
+| `apply_explicit(text, profile)` | `(str, str\|None) -> str` | 确定性替换 |
+| `build_prompt(profile, token_budget)` | `(str, int) -> str` | ⭐ 拼装系统提示词 |
+
+### `LanguageRefiner` / `make_refiner`
+
+| 方法 | 签名 | 说明 |
+|---|---|---|
+| `make_refiner(chat_fn, llm, corpus_path)` | `(*, chat_fn, ...) -> LanguageRefiner` | 工厂（chat_fn 必传） |
+| `refine(text, context, max_rounds)` | `(str, str, int) -> str` | 多轮 Self-Refine 重写 |
+| `check_grammar(text)` | `(str) -> list` | 语法检查 |
+| `detect_ai_tells(text)` | `(str) -> list` | 违禁词命中 |
+| `detect_ai_taste_signals(text)` | `(str) -> AITasteSignals` | AI 味信号 |
+
+### `gate_content` / `gate_short`
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `gate_content(text, context, apply_l2, refiner, polish_fn)` | `(str, str, bool, refiner\|None, fn\|None) -> str` | L0 规则 + L2 重写 |
+| `gate_short(text, context, refiner, polish_fn)` | `(str, str, ...) -> str` | 短文本快路径（仅 L0） |
+
+### `ForbiddenWords`
+
+| 方法 | 签名 | 说明 |
+|---|---|---|
+| `add(word)` / `remove(word)` | `(str) -> bool` | 运行时增删 |
+| `load_json(path)` | `(str\|None) -> int` | 合并外部词库 |
+| `detect(text)` | `(str) -> list` | 命中词列表 |
+| `detect_count(text)` | `(str) -> int` | 命中总数 |
+
+### `get_style_prompt`
+
+| 参数 | 说明 |
+|---|---|
+| `"all"` | 全量语言风格提示词 |
+| `"weil"` / `"lexicon"` / `"syntax"` / `"forbidden"` | 分段 |
+| `["weil", "syntax"]` | 多段拼接 |
+
+## ⚙️ 配置参考
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `PAEG_RULES_PATH` | `src/paeg_lang_style/data/rules.json` | 规则集路径覆盖 |
+
+### data/ 文件
+
+| 文件 | 用途 | 可扩充 |
+|---|---|---|
+| `data/rules.json` | 语法规则集 | ✅ 追加即热加载 |
+| `data/forbidden_words.json` | 违禁词库 | ✅ 动态维护 |
+| `data/weil_corpus.json` | 语料 few-shot | ✅ 可替换 |
+
+## 🏛️ 架构设计
 
 ```
-LLM 生成文本
-   │
-   ▼
-gate_content() ── L0-0: fix_known_gaffes（病句确定性修正，纯规则）
-   │
-   ├── L0: polish（AI 味检测 → 触发改写；注入式 polish_fn）
-   │
-   ├── L2: refiner.refine（注入式 chat_fn → 多轮 Self-Refine）
-   │        └─ detect_ai_taste → 复检 < 0.4 停止
-   │
-   └── 收口: fix_known_gaffes（改写后病句再跑一遍）
-   │
-   ▼
-规范输出
+┌─ 宿主系统（任何 Python 项目 / 智能体）─────────────┐
+│  system_prompt += RuleRegistry().build_prompt()    │  ← 语法规则拼系统提示词（谁用都拼）
+│  gate_content(output, refiner=make_refiner(chat))  │  ← 输出后处理
+└───────────────────┬───────────────────────────────┘
+                    │ 零宿主依赖（不 import 宿主任何模块）
+┌───────────────────▼───────────────────────────────┐
+│  paeg_lang_style（独立插件）                        │
+│  ┌──────────────┐ ┌──────────────┐ ┌────────────┐  │
+│  │ rule_registry│ │ forbidden.py │ │ ai_taste.py│  │
+│  │ 可扩充规则集  │ │ 动态违禁词库  │ │ AI 味检测  │  │
+│  └──────┬───────┘ └──────┬───────┘ └─────┬──────┘  │
+│         │                │               │         │
+│  ┌──────▼─────────────── ▼──────────────▼───────┐  │
+│  │ refiner.py（改写脚本：chat_fn 注入 + 规则 ID 闭环）│  │
+│  │ gate.py（守门入口：L0+L2 编排）                 │  │
+│  └──────────────────────────────────────────────┘  │
+│  data/（rules.json / forbidden_words.json / 语料）  │
+└───────────────────────────────────────────────────┘
 ```
 
----
+## 🔗 与 PAEG 主项目集成
 
-## 语法规则约束（8 条 · README 详记 ⭐）
-
-每条规则含：**规则定义 / 触发模式（正则）/ 修正方向 / 正反例**。
-
-### 规则 1：词法完整（禁止单字压缩双字词）
-
-> **定义**：动词、名词、形容词一律使用完整词形，不得省略、压缩。双字词/多字词不得压缩为单字。
-
-**触发模式**（`rules.py` `ELLIPSIS_WORDS`）：
-```python
-(r"觉得倦了|感到倦|已倦", "『倦』是『疲倦』的省略，应改为完整词形『疲倦』")
-(r"的乏($|[，。；])", "『乏』是『疲乏』的省略，应改为完整词形『疲乏』")
-(r"道出", "『道出』是压缩写法，应改为『说出来』或『说出』")
-(r"探知", "『探知』是压缩写法，应改为『探索并了解』")
-(r"开始算|先算|来算|算算|算一下|算个", "『算』是『计算』的省略，应改为完整词形『计算』")
-(r"开始看|先看|来看|看看", "『看』若指『观察/查看』应用完整形式『观察』『查看』")
-(r"开始想|想想|想一想|来想", "『想』若指『思考』应用完整形式『思考』")
-(r"(每天|每周|每日|每晚|每早|平时|空闲|晚上|早上|下午|中午|睡前|早起)[^，。；]{0,8}(时间|时候)?[用学看听读]($|[，。；])",
- "缺介词+动词不规范——『每天固定时间用』应改为『在每天固定的时间使用』")
-```
-**修正方向**：`倦`→`疲倦`、`乏`→`疲乏`、`沉`→`沉重`、`道出`→`说出来`、`探知`→`探索并了解`、`算`→`计算`、`看`→`观察/查看`、`想`→`思考`。
-**正例**："觉得疲倦了" / "身体上的疲乏" / "心里有点沉重" / "我们开始计算"。
-**反例**："觉得倦了" / "身体上的乏" / "心里有点沉" / "开始算"。
-**例外**：真正的祈使指令（"请做这道题""看这里"）可保留简洁动词。
-
-### 规则 2：动宾搭配（动词须自然接宾语）
-
-> **定义**：动词与其宾语语义搭配自然，禁止强行组合、抽象装饰动词。
-
-**触发模式**（`BAD_COLLOCATIONS`）：
-```python
-(r"带着(重量|分量)", "『带着重量/分量』动宾不通——『带』是随身携带，重量不能随身带")
-(r"带着(意义|温度|感情)", "『带着意义/温度/感情』是拟人化装饰，应改为更具体的表达")
-(r"做着(思考|努力|准备)", "『做着思考/努力』是凑词式动宾，应改为『正在思考』『正在努力』")
-(r"进行(一个)?(分析|讨论|思考)", "『进行分析/讨论』是翻译腔冗余动词，应直接说『分析/讨论』")
-```
-**修正方向**：`带着重量`→`这句话的分量很重` / `这句话本身已经很重`；`进行一个分析`→`分析`；`做着思考`→`正在思考`。
-**正例**："这句话本身，已经有很重的分量。"
-**反例**："这句话本身，已经带着重量。"
-
-### 规则 3：悬空宾语（动词缺宾语补足）
-
-> **定义**：动词必须带恰当的宾语，不得悬空。修饰成分残缺须补中心名词。
-
-**触发模式**（`DANGLING_VERBS`）：
-```python
-(r"与你探讨$|和你探讨$|与你分享$|和你分享$|与您探讨$|与您分享$",
- "『与你探讨/分享』动词悬空缺宾语，应补足为『与你探讨这个问题』『与你分享我的想法』")
-(r"与你交流$|和你交流$", "『与你交流』动词悬空缺宾语，应补足为『与你交流我的看法』")
-(r"作为(主力|主打|核心|重点|首选|备选)($|[，。；])",
- "『作为主力』修饰成分残缺——『主力』是修饰语，须接中心名词")
-```
-**修正方向**：`我想与你探讨。`→`我想与你探讨这个问题。`；`作为主力`→`作为主力工具/主要方法`。
-**正例**："我想与你探讨这个问题。"
-**反例**："我想与你探讨。"
-
-### 规则 4：无主语短语禁止单独成句
-
-> **定义**：老师对学生说话时必须补主语。无主语短语（副词+动词）不得单独成句。
-
-**触发模式**（`NO_SUBJECT_PHRASES`）：
-```python
-r"^不催你", r"^先不急", r"^先别急", r"^别催",
-r"^(不|先|再|别|不必|不要|无需|不需要|不用)(用)?(着急|急着|急|催|担心|怕|慌|赶|抢)",
-r"^(别|不要|不必|无需|不用|先别|先不要)(贪|急|慌|怕|赶|抢|省|凑|堆|贪多|一口吃)",
-```
-**修正方向**：`不催你。`→`老师不催你，你慢慢来。`；`先不急。`→`我们先不着急。`；`别贪多。`→`你不要贪多。`
-**正例**："老师不催你，你慢慢来。"
-**反例**："不催你。"
-**合法省略边界**（三种可省略）：祈使指令 / 上下文同一主语 / 简短应答。
-
-### 规则 5：复合句分句缺主语（因果/转折）
-
-> **定义**：因果/转折复合句的每个分句都应有主语。
-
-**触发模式**（`COMPOUND_PATTERNS`）：
-```python
-(r"^(因为|由于|既然|如果|虽然|尽管|即使)[^，。；]{1,15}，(所以|因此|但|但是|然而|就|便)(?!.*(我们|我|你|学生|它|他|她))[^，。；]{1,15}$",
- "复合句分句缺主语——『因为…所以…』每个分句都应有主语")
-(r"^(虽然|尽管)[^，。；]{1,15}，(但|但是|可是)(?!.*(我们|我|你|学生|它|他|她))[^，。；]{1,15}$",
- "复合句转折分句缺主语——『虽然…但…』分句应有主语")
-```
-**修正方向**：`因为学习了，进步了。`→`因为学习了，所以我进步了。`；`虽然困难，但要坚持。`→`虽然困难，但我们要坚持。`
-**正例**："因为学习了，所以我进步了。"
-**反例**："因为学习了，进步了。"
-
-### 规则 6：介词规范（不得悬空/误用/缺失）
-
-> **定义**：介词必须带宾语，不得悬空、误用、缺失。时间/地点/方式状语前须有介词。
-
-**触发模式**（`BAD_PREPOSITIONS`）：
-```python
-(r"(关于|对于)[^，。；]{1,12}[，。；](?!.*(我们|我|你|学生|它|他|她))",
- "『关于/对于』引出的内容后直接接无主句——介词短语须引出完整主句")
-(r"通过[^，。；]{1,12}[，。；](?!.*(我们|我|你|学生|它|他|她))",
- "『通过』须引出对象且后接完整主句——不得悬空")
-(r"根据[^，。；]{1,12}[，。；](?!.*(我们|我|你|学生|它|他|她|结论|结果|判断))",
- "『根据』须引出依据且后接完整主句")
-(r"把他(帮助|教导|培养|改变)了", "『把』字句误用——『把』须引出受事且动词结构完整")
-(r"被[^，。；]{0,6}$", "『被』字句悬空——『被』须引出施事")
-```
-**修正方向**：`关于学习方面。`→`在学习方面，要重视方法。`；`通过这次讲解，让学生明白了。`→`通过这次讲解，学生明白了导数的意义。`；`把他帮助了。`→`他帮助了那个学生。`；`每天固定时间用`→`在每天固定的时间使用`。
-**正例**："通过这次讲解，学生明白了导数的意义。"
-**反例**："通过这次讲解，让学生明白了。"
-
-### 规则 7：谓宾补足（"听着你"病句修正）
-
-> **定义**："听"类动词必须带补语（听你说/听你讲讲），禁止"听着你"悬空（缺"听什么"）。
-
-**触发模式**（`_GAFFE_FIX_RULES`，`fix_known_gaffes` 确定性修正）：
-```python
-_GAFFE_END = r'(?=[。！？!?，,；;：:…]|$)'
-(re.compile(r'我在这里听着你' + _GAFFE_END), '我就在这里听你说说'),
-(re.compile(r'在这里听着你' + _GAFFE_END), '在这里听你说说'),
-(re.compile(r'我听着你' + _GAFFE_END), '我听你说说'),
-(re.compile(r'听着你' + _GAFFE_END), '听你说说'),
-```
-**修正方向**：`我在这里听着你。`→`我就在这里听你说说。`；`你说吧，我听着你。`→`你说吧，我听你说说。`
-**正例**："我就在这里听你说说。" / "我在这里听着你说。"（带补语合法）
-**反例**："我在这里听着你。"
-**关键**：只修**悬空的"听着你"**（后接句末/停顿标点）；"听着你说/听着你讲/听着你的话"等已带补语的合法搭配保持原样。
-
-### 规则 8：语义残缺（形容词+的+缺失中心名词）
-
-> **定义**：抽象名词做宾语时须有中心名词，不悬空；形容词+的 须搭配正确的中心名词。
-
-**触发模式**（`SEMANTIC_ISSUES`）：
-```python
-(r"最直觉的(地方|角度|层面|方法)", "『最直觉的…』语义不当——『直觉』是名词，应说『最直观的…』")
-(r"最基础的(东西|内容)(?=[，。；])", "『最基础的东西/内容』过于笼统，应具体化（『最基础的概念』『最基础的方法』）")
-```
-**修正方向**：`最直觉的地方`→`最直观的地方`；`最基础的东西`→`最基础的概念/方法`。
-**正例**："从最直观的角度看……"
-**反例**："从最直觉的地方看……"
-
-### 违禁表达（forbidden · 系统提示词层）
-
-系统提示词 `get_style_prompt("forbidden")` 约束 LLM 禁止：
-- **AI 腔套话**：总的来说/综上所述/值得注意的是/让我们一起…
-- **空洞大词**：赋能/点亮/激活/重塑/升级/全方位/一站式…
-- **伪共情动词**：接住（情绪）/托住/兜住/我懂你/心疼你…（表演关怀非真实陪伴）
-- **廉价鼓励**：加油/你真棒/你一定可以…
-- **低劣网络用语**：yyds/绝绝子/栓Q/破防/内卷/躺平/宝子/家人们…
-- **空洞赞美形容词**：深刻/全面/系统/本质…
-
----
-
-## 插件化接入（PAEG 主项目）
-
-主项目（教育智能体）通过**唯一适配层** `infra/lang_plugin_bridge.py` 接入：
+PAEG 教育智能体通过**唯一适配层** `infra/lang_plugin_bridge.py` 接入（R18/R20 零破坏铁律）：
 
 ```python
-# PAEG 内改造（示例）
-from infra.lang_plugin_bridge import gate_content, gate_short, get_style_prompt, make_refiner
-
-# 原 from services.lang_gate import lang_gate_content → gate_content
-# 原 from prompts import LANGUAGE_STYLE → get_style_prompt
-# 原 LanguageRefiner(llm) → make_refiner(chat_fn=_safe_chat, llm=llm)
+from infra.lang_plugin_bridge import gate_content, get_style_prompt, make_refiner
+# 插件挂载 → 走插件；插件未挂载 → 静默回退 PAEG 原实现（旧文件永不删除）
 ```
-
-**插件化铁律（R20）**：
-1. 插件未挂载（import 失败）→ 桥**静默回退** PAEG 原实现
-2. PAEG 旧文件（services/lang_gate.py / language_refiner.py / prompts.LANGUAGE_STYLE）**永不删除**
-3. 桥是**叠加层**，不是替换层——接入失败零破坏
 
 详见 [docs/integration_paeg.md](docs/integration_paeg.md)。
 
----
-
-## 测试
+## ✅ 测试
 
 ```bash
 python -m pytest tests/ -q
-# 31 项插件测试 + 4 项行为一致性（vs PAEG 原实现 20 段样本字符串相等）
+# 75 项：规则集加载/热重载/检测/拼装/用户扩充/损坏容错 + 通则 + 充分状语 + 行为一致性
 ```
 
-## License
+## 🤝 贡献指南
 
-MIT（与 PAEG 主项目一致）
+欢迎贡献！请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)（待建）了解：
+- 新增语法规则：编辑 `data/rules.json` 追加 `Rule`（含测试）
+- 新增违禁词：`ForbiddenWords.load_json` 或直接提 PR 进内置词库
+- 代码风格：遵循现有模块结构 + 注释规范
+
+## 📜 更新日志
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
+
+## 🙏 致谢
+
+- **PAEG 教育智能体**（v0.12-v0.71 迭代）——本插件提取自其语言规范模块
+- **LanguageTool**——规则声明式引擎范式（[dev.languagetool.org](https://dev.languagetool.org/development-overview)）
+- **textstat**——可读性度量范式（[github.com/textstat/textstat](https://github.com/textstat/textstat)）
+- **GB/T 15834-2011《标点符号用法》**——标点规则国家标准
+- **Agent Skills 标准**——渐进披露范式（[agentskills.io](https://agentskills.io)）
+
+## 📄 许可证
+
+MIT © 2026 PAEG Team — 详见 [LICENSE](LICENSE) 文件。
