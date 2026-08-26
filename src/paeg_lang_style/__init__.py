@@ -55,8 +55,10 @@ from .prompts.language_style import LANGUAGE_STYLE, get_style_prompt
 from .rules_enhanced import (
     check_lexicon_general_rule,
     check_syntax_general_rule,
+    check_adverbial_general_rule,
     build_lexicon_rule_prompt,
     build_syntax_rule_prompt,
+    build_adverbial_rule_prompt,
     SINGLE_CHAR_STATE_WORDS,
 )
 from .rule_registry import RuleRegistry, BUILTIN_RULES
@@ -81,7 +83,9 @@ __all__ = [
     "ForbiddenWords", "_BUILTIN_FORBIDDEN",
     # 通则化增强（§3.109 ⭐ 指挥 LLM 使用完整词，而非逐词修补）
     "check_lexicon_general_rule", "check_syntax_general_rule",
+    "check_adverbial_general_rule",
     "build_lexicon_rule_prompt", "build_syntax_rule_prompt",
+    "build_adverbial_rule_prompt",
     "SINGLE_CHAR_STATE_WORDS",
     # 可扩充规则集（Oracle §3.109 ⭐ 语法规则可扩充，作为系统提示词核心）
     "RuleRegistry", "BUILTIN_RULES",
