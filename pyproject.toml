@@ -18,8 +18,13 @@ dev = ["pytest>=7", "fastmcp>=2"]
 [project.scripts]
 paeg-lang-style-mcp = "paeg_lang_style.mcp_server:main"
 
+# §3.114 ⭐ src 布局 + 自动发现（pip install 成功 + 子包完整）
 [tool.setuptools]
-packages = ["paeg_lang_style"]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["paeg_lang_style*"]
 
 [tool.setuptools.package-data]
 paeg_lang_style = ["data/*.json", "prompts/*.py"]
