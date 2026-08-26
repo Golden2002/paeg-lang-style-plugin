@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paeg-lang-style"
+version = "0.1.0"
+description = "PAEG 语言规范插件：词法/句法规则约束 + 动态违禁词库 + LLM 输出重写工具（可拆卸、可独立、可接入教育智能体）"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "PAEG Team" }]
+keywords = ["chinese", "grammar", "language-quality", "ai-taste", "nlg"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools]
+packages = ["paeg_lang_style"]
+
+[tool.setuptools.package-data]
+paeg_lang_style = ["data/*.json", "prompts/*.py"]
