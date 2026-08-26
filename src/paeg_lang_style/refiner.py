@@ -31,6 +31,7 @@ from .rules_enhanced import (
     build_syntax_rule_prompt,
     check_lexicon_general_rule,
     check_syntax_general_rule,
+    check_adverbial_general_rule,
 )
 from .rule_registry import RuleRegistry
 
@@ -113,7 +114,8 @@ class LanguageRefiner:
         # 通则化检测（§3.109 ⭐ 词法完整通则 + 句法完整通则——指挥 LLM 泛化）
         lex_issues = check_lexicon_general_rule(text)
         syn_issues = check_syntax_general_rule(text)
-        has_general_issue = bool(lex_issues or syn_issues)
+        adv_issues = check_adverbial_general_rule(text)  # 充分状语通则
+        has_general_issue = bool(lex_issues or syn_issues or adv_issues)
 
         # ⭐ 可扩充规则集检测（Oracle：规则命中 → 反馈带规则 ID）
         self.rules.check_reload()  # 热重载检查
@@ -183,6 +185,10 @@ class LanguageRefiner:
         syn_issues = check_syntax_general_rule(text)
         if syn_issues:
             feedback_parts.append("【句法完整通则】" + "；".join(syn_issues[:3]))
+        # ⭐ 充分状语通则（§3.109 用户新增）
+        adv_issues = check_adverbial_general_rule(text)
+        if adv_issues:
+            feedback_parts.append("【充分状语通则】" + "；".join(adv_issues[:3]))
         # ⭐ 规则集命中（Oracle：反馈带规则 ID，形成规则↔生成↔反馈闭环）
         rule_hits = self.rules.detect(text)
         if rule_hits:
