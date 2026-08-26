@@ -2,7 +2,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-75%2F75%20%E2%9C%93-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-75%2F75-brightgreen.svg)](tests/)
 
 **Chinese language quality plugin**: extensible grammar rules + dynamic forbidden-word list + LLM output rewriting. Detachable, independent, pluggable into any agent.
 
@@ -22,20 +22,20 @@
 
 Zero host dependencies. Extracted from the PAEG educational agent (v0.12-v0.71 iterations), refactored as an independent plugin.
 
-## ✨ Features
+## Features
 
-- 📜 **Extensible rule set**: rules externalized to `data/rules.json`, append-and-hot-reload (`RuleRegistry`)
-- 🧠 **General-rule command**: lexical/syntactic/adverbial general rules let the LLM generalize, not memorize word-by-word replacements
-- 🛡️ **Deterministic fallback**: explicit rules ("我在这里听着你。"→"我就在这里听你说说。")
-- 🔁 **Rule-ID feedback loop**: rewrite feedback cites "violates #rule-lx-001"
-- 🚫 **Dynamic forbidden-word list**: runtime add/remove + external JSON hot-load
-- 🔧 **Injection design**: `chat_fn` mandatory injection — plug in your own LLM call
-- 🎯 **Profile modes**: general / teaching / confessional
-- 📏 **AI-taste detection**: burstiness / marker density / three-lists / em-dash / paragraph symmetry
-- 🇨🇳 **8+ grammar rules**: GB/T 15834 punctuation + six disease-sentence types
-- ✅ **75 tests** green + 20-sample behavior parity (string-equal vs PAEG original)
+- **Extensible rule set**: rules externalized to `data/rules.json`, append-and-hot-reload (`RuleRegistry`)
+- **General-rule command**: lexical/syntactic/adverbial general rules let the LLM generalize, not memorize word-by-word replacements
+- **Deterministic fallback**: explicit rules ("我在这里听着你。"→"我就在这里听你说说。")
+- **Rule-ID feedback loop**: rewrite feedback cites "violates #rule-lx-001"
+- **Dynamic forbidden-word list**: runtime add/remove + external JSON hot-load
+- **Injection design**: `chat_fn` mandatory injection — plug in your own LLM call
+- **Profile modes**: general / teaching / confessional
+- **AI-taste detection**: burstiness / marker density / three-lists / em-dash / paragraph symmetry
+- **8+ grammar rules**: GB/T 15834 punctuation + six disease-sentence types
+- **75 tests** green + 20-sample behavior parity (string-equal vs PAEG original)
 
-## 📦 Install
+## Install
 
 ```bash
 pip install -e /path/to/paeg-lang-style-plugin
@@ -44,7 +44,7 @@ pip install -e /path/to/paeg-lang-style-plugin
 
 Python 3.9+. Zero third-party runtime deps.
 
-## 🚀 Quick Start
+## Quick Start
 
 ```python
 from paeg_lang_style import RuleRegistry, make_refiner, gate_content
@@ -62,7 +62,7 @@ refiner = make_refiner(chat_fn=my_llm)
 clean = gate_content(raw_output, refiner=refiner)
 ```
 
-## 🔌 Integration Guide for Other Projects
+## Integration Guide for Other Projects
 
 ### A. Only grammar-rule constraints (system prompt)
 
@@ -98,7 +98,7 @@ reg.load("data/rules.json")    # merge, append-take-effect
 reg.watch("data/rules.json")   # mtime hot-reload
 ```
 
-## 🧩 Extensibility
+## Extensibility
 
 | Extension point | How | Mechanism |
 |---|---|---|
@@ -109,7 +109,7 @@ reg.watch("data/rules.json")   # mtime hot-reload
 | LLM backend | Inject any `chat_fn` | mandatory injection |
 | Rule-ID contract | Stable `id`, feedback cites it | loop for telemetry |
 
-## 🛠️ Maintainability
+## Maintainability
 
 - Zero host dependency, independently testable
 - Old API compat (thin wrappers)
@@ -118,7 +118,7 @@ reg.watch("data/rules.json")   # mtime hot-reload
 - Corruption-tolerant (keep last good rules, never clear-run)
 - Token budget prevents prompt bloat
 
-## 📚 Built-in Rules
+## Built-in Rules
 
 | ID | Type | Category | Rule |
 |---|---|---|---|
@@ -130,14 +130,14 @@ reg.watch("data/rules.json")   # mtime hot-reload
 | `rule-sx-001~007` | explicit | syntactic | "听着你" gaffe / dangling object / collocation / translationese |
 | `rule-pn-001` | explicit | punctuation | comma after 说 |
 
-## ✅ Tests
+## Tests
 
 ```bash
 python -m pytest tests/ -q
 # 75: rule set load/hot-reload/detect/build/user-extension/corruption-tolerance + general rules + adverbials + parity
 ```
 
-## 🙏 Credits
+## Credits
 
 - **PAEG educational agent** (v0.12-v0.71) — source of this plugin
 - **LanguageTool** — rule-declaration engine paradigm
@@ -145,6 +145,6 @@ python -m pytest tests/ -q
 - **GB/T 15834-2011** — Chinese punctuation national standard
 - **Agent Skills** — progressive disclosure paradigm
 
-## 📄 License
+## License
 
 MIT © 2026 PAEG Team
