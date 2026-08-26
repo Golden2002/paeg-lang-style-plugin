@@ -72,34 +72,86 @@ paeg-lang-style-plugin/
 ├── pyproject.toml              # 独立包（MIT）
 ├── demo.py                     # 独立运行 demo（不依赖 PAEG）
 ├── README.md                   # 本文件：架构 + 每条语法规则
+├── SKILL.md                    # Agent Skills 标准（渐进披露 3 层）
 ├── src/paeg_lang_style/
 │   ├── __init__.py             # 对外 API（gate_content / make_refiner / ...）
-│   ├── rules.py                # ⭐ 词法/句法规则集（8 条，见下）
+│   ├── rules.py                # 列举式规则（确定性兜底：倦→疲倦、听着你→听你说说）
+│   ├── rules_enhanced.py       # 通则化检测（指挥 LLM 泛化：词法/句法完整通则）
+│   ├── rule_registry.py        # ⭐ 可扩充规则集（Rule 模型 + JSON 热加载 + profile 拼装）
 │   ├── ai_taste.py             # AI 味检测（句长变异/过渡词/三段式/破折号）
 │   ├── forbidden.py            # 动态违禁词库（运行时增删 + JSON 热加载）
-│   ├── refiner.py              # 重写工具（注入式 chat_fn，多轮 Self-Refine）
+│   ├── refiner.py              # 改写脚本（注入式 chat_fn，规则 ID 反馈闭环）
 │   ├── gate.py                 # 守门入口（L0+L2 三层，注入式解耦）
 │   └── prompts/
-│       └── language_style.py   # 系统提示词（weil/lexicon/syntax/forbidden 四段）
+│       ├── builder.py          # ⭐ profile 动态拼装系统提示词（general/teaching/confessional）
+│       └── language_style.py   # 语言风格提示词（weil/lexicon/syntax/forbidden 四段）
 ├── data/
+│   ├── rules.json              # ⭐ 可扩充语法规则集（用户追加即热加载）
 │   ├── forbidden_words.json    # 外部违禁词库（动态维护）
 │   └── weil_corpus.json        # 语料 few-shot（可替换为中性语料）
 ├── docs/
 │   ├── architecture.md         # 架构图 + 数据流
 │   ├── integration_paeg.md     # 接入 PAEG 指南
 │   └── samples_20.md           # 20 段 LLM 直生成 vs 处理后对比
-└── tests/
-    ├── test_plugin.py          # 31 项插件测试
-    └── test_parity.py          # 行为一致性（vs PAEG 原实现）
+└── tests/                      # 67 项测试（含规则集/通则/一致性）
 ```
+
+### 三层架构（用户要求 ⭐：语法规则约束 + 违禁词兜底 + 改写脚本）
+
+| 层 | 模块 | 定位 | 可扩充性 |
+|---|---|---|---|
+| **语法规则约束**（最重要） | `rule_registry.py` + `prompts/builder.py` | **系统提示词核心，谁用都拼**——通则层指挥 LLM 泛化（用完整词/完整句法），列举层确定性兜底 | ⭐ 规则集外置 `data/rules.json`，追加即热加载 |
+| **违禁词兜底** | `forbidden.py` | 防 LLM 不听话时的底线（AI 腔/空洞大词/伪共情/廉价鼓励/网络用语） | ⭐ 运行时增删 + JSON 热加载 |
+| **改写脚本** | `refiner.py` | LLM 输出后处理（检测命中规则 → 反馈带规则 ID → 多轮 Self-Refine） | 规则集扩充自动接入检测/反馈 |
+
+### 可扩充规则集（RuleRegistry ⭐ 核心设计）
+
+**Rule 数据模型**（外置 JSON，可扩充）：
+```json
+{
+  "id": "rule-lx-general-001",
+  "type": "general",              // general=通则（指挥 LLM）/ explicit=列举（确定性兜底）
+  "category": "lexical",          // lexical / syntactic / punctuation / register
+  "pattern": "正则（检测用）",
+  "replacement": "替换文本（列举层确定性）",
+  "message": "修正建议（反馈 LLM）",
+  "prompt_block": "通则提示词段落（拼进系统提示词）",
+  "severity": "high",
+  "enabled": true,
+  "source": "builtin",           // builtin / user
+  "profile_tags": ["general", "teaching", "confessional"]
+}
+```
+
+**可扩充方式**（用户要求 ⭐）：
+```python
+from paeg_lang_style import RuleRegistry
+reg = RuleRegistry()                 # 内置规则
+reg.load("data/rules.json")          # 合并用户扩展规则（追加即生效）
+reg.add_rule({...})                  # 运行时新增
+reg.watch("data/rules.json")         # mtime 热重载
+reg.check_reload()                   # 每次调用前检查
+
+# 谁用都拼（语法规则作为系统提示词核心）
+prompt = reg.build_prompt("teaching")       # 教学档
+prompt = reg.build_prompt("confessional")   # 倾诉档
+prompt = reg.build_prompt("general")        # 通用档
+```
+
+**设计哲学**（用户关切 ⭐ 避免狭隘性）：
+- **通则层指挥 LLM 泛化**：`prompt_block` 写"凡表达状态/感受的单字形容词一律扩展为完整双字词形（倦/乏/沉/累/苦/慌/虚/弱/低/烦/闷/困/急/乱）"——LLM 自行泛化到未列举词，而非只修"倦→疲倦"
+- **列举层确定性兜底**：LLM 不听话时的最后防线（"我在这里听着你"→"我就在这里听你说说"）
+- **规则 ID 反馈闭环**：改写反馈带规则编号（"违反 #rule-lx-007…"），形成规则↔生成↔反馈闭环
 
 ### 三大架构模式（librarian 调研应用）
 
 | 模式 | 来源范式 | 插件实现 |
 |---|---|---|
-| 规则声明式 + 模式匹配引擎 | LanguageTool（grammar.xml 规则） | `rules.py`（正则规则 + 修正建议） |
+| 规则声明式 + 模式匹配引擎 | LanguageTool（grammar.xml 规则） | `rule_registry.py`（Rule 数据模型 + pattern 检测） |
 | 算法式度量 | textstat（语言特定公式） | `ai_taste.py`（burstiness/marker_density 等） |
 | 中文特化预处理 | jieba + LTP（分词驱动） | `rules.py` 正则分句检测（零依赖版） |
+| 渐进披露 3 层 | Agent Skills 标准 | `SKILL.md`（L1 入口）+ `docs/`（L2 规则页）+ `data/`（L3 数据） |
+| 标点规范 | GB/T 15834-2011 | `rule-pn-*` 标点规则（句末点号/顿号vs逗号/说后逗号） |
 
 ### 数据流
 
