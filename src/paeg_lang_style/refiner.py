@@ -26,6 +26,13 @@ from typing import Callable, List, Optional
 from .ai_taste import detect_ai_taste
 from .forbidden import ForbiddenWords
 from .rules import check_ellipsis, fix_known_gaffes
+from .rules_enhanced import (
+    build_lexicon_rule_prompt,
+    build_syntax_rule_prompt,
+    check_lexicon_general_rule,
+    check_syntax_general_rule,
+)
+from .rule_registry import RuleRegistry
 
 # chat_fn 类型：LLM 调用包装 (system, user, max_tokens=800, **kw) -> str
 ChatFn = Callable[..., str]
@@ -34,7 +41,8 @@ ChatFn = Callable[..., str]
 class LanguageRefiner:
     """语言优化 Agent：矫正文本，去除 AI 痕迹（注入式 chat_fn）。"""
 
-    def __init__(self, llm=None, corpus_path: Optional[str] = None, chat_fn: Optional[ChatFn] = None):
+    def __init__(self, llm=None, corpus_path: Optional[str] = None, chat_fn: Optional[ChatFn] = None,
+                 rules_path: Optional[str] = None):
         # P1 ⭐ 强制外部注入 chat_fn（插件独立可用，不依赖任何宿主项目）
         if chat_fn is None:
             raise TypeError(
@@ -46,6 +54,10 @@ class LanguageRefiner:
         self.corpus = self._load_corpus(corpus_path)
         self.forbidden = ForbiddenWords()
         self.forbidden.load_json()  # 合并 data/forbidden_words.json（外部动态词库）
+        # ⭐ 可扩充规则集（Oracle §3.109：语法规则作为系统提示词核心，可扩充、可热重载）
+        self.rules = RuleRegistry()
+        self.rules.load(rules_path)
+        self.rules.watch(rules_path)
 
     def _load_corpus(self, corpus_path: Optional[str] = None) -> list:
         """加载语料（薇依语料 few-shot；可替换为中性语料）。"""
@@ -98,16 +110,27 @@ class LanguageRefiner:
         # 省略句/语法问题触发改写
         has_ellipsis = len(self.check_grammar(text)) > 0
 
+        # 通则化检测（§3.109 ⭐ 词法完整通则 + 句法完整通则——指挥 LLM 泛化）
+        lex_issues = check_lexicon_general_rule(text)
+        syn_issues = check_syntax_general_rule(text)
+        has_general_issue = bool(lex_issues or syn_issues)
+
+        # ⭐ 可扩充规则集检测（Oracle：规则命中 → 反馈带规则 ID）
+        self.rules.check_reload()  # 热重载检查
+        rule_hits = self.rules.detect(text)
+        has_rule_hit = bool(rule_hits)
+
         # 高频词重复（affection 语言刻板）
         rep_issues = self._check_word_repetition(text)
         has_repetition = bool(rep_issues)
 
-        # 无 AI 味、无省略句、无重复、且不算太长 → 直接返回
-        if ai_prob < 0.4 and not has_ellipsis and not has_repetition and len(text) < 400 \
+        # 无 AI 味、无省略句、无通则问题、无规则命中、无重复、且不算太长 → 直接返回
+        if ai_prob < 0.4 and not has_ellipsis and not has_general_issue \
+                and not has_rule_hit and not has_repetition and len(text) < 400 \
                 and not self.detect_ai_tells(text):
             return text
 
-        system = self._build_system()
+        system = self._build_system(profile=self.rules)
         current = text
         for round_i in range(max_rounds):
             feedback = self._get_feedback(current, context)
@@ -128,7 +151,8 @@ class LanguageRefiner:
             except Exception:
                 break
 
-        # 最终收口：病句规则再跑一遍（改写可能重新引入悬空'听着你'）
+        # 最终收口：列举层确定性兜底 + 病句规则再跑一遍
+        current = self.rules.apply_explicit(current)
         return fix_known_gaffes(current)
 
     def _get_feedback(self, text: str, context: str = "") -> str:
@@ -152,6 +176,20 @@ class LanguageRefiner:
         omit_issues = self.check_grammar(text)
         if omit_issues:
             feedback_parts.append("存在省略句/无主句，需补全主谓宾：" + "；".join(omit_issues[:3]))
+        # 通则化检测（§3.109 ⭐ 词法完整通则 + 句法完整通则）
+        lex_issues = check_lexicon_general_rule(text)
+        if lex_issues:
+            feedback_parts.append("【词法完整通则】" + "；".join(lex_issues[:3]))
+        syn_issues = check_syntax_general_rule(text)
+        if syn_issues:
+            feedback_parts.append("【句法完整通则】" + "；".join(syn_issues[:3]))
+        # ⭐ 规则集命中（Oracle：反馈带规则 ID，形成规则↔生成↔反馈闭环）
+        rule_hits = self.rules.detect(text)
+        if rule_hits:
+            id_notes = "；".join(
+                f"违反 #{h.get('id')}（{h.get('message', '')}）" for h in rule_hits[:5]
+            )
+            feedback_parts.append(f"【规则违反】{id_notes}——请按对应规则修正")
         # 违禁词命中
         hits = self.detect_ai_tells(text)
         if hits:
@@ -219,11 +257,20 @@ class LanguageRefiner:
 【待改写文本】
 {text[:1500]}"""
 
-    def _build_system(self) -> str:
-        """构建语言优化的 system prompt（含语料 few-shot）。"""
+    def _build_system(self, profile: str = "general", rules: Optional[RuleRegistry] = None) -> str:
+        """构建语言优化的 system prompt（含语料 few-shot + 可扩充规则集通则）。"""
         corpus_examples = "\n\n".join(
             f"【语料原句 {i+1}】\n{c[:300]}" for i, c in enumerate(self.corpus[:6])
         )
+        # ⭐ 规则集通则拼装（Oracle：语法规则作为系统提示词核心，谁用都拼）
+        rule_prompt = ""
+        if rules is not None:
+            rule_prompt = rules.build_prompt(profile=profile)
+        else:
+            lexicon_rule = build_lexicon_rule_prompt()
+            syntax_rule = build_syntax_rule_prompt()
+            rule_prompt = f"{lexicon_rule}\n\n{syntax_rule}"
+
         return f"""你是一位语言校正者，任务是让 AI 生成的文字像一位真实的人写的——朴素、准确、有力量。
 
 ## 语料参考（来自真实文本）
@@ -235,39 +282,23 @@ class LanguageRefiner:
 - 有力量：每句话立得住——要么是事实，要么是观点，要么是问题。
 - 温柔：不哄不捧，认真对待。不用"你真棒""加油"这类廉价鼓励。
 - 不煽情：不用"让我们踏上""知识的海洋""点亮智慧"等套话；不堆语气词（嗯/啊/呢/吧/呀）。
-- **语法完整**：每一句都是完整句子（有主谓宾），不写省略句、无主句。
-  ❌"一句话记住：…"→✅"我们可以用一句话来记住：…"
-  ❌"先看一个现象"→✅"我们先来看一个现象。"
-- **无主语短语禁止单独成句**：
-  ❌"不催你。"→✅"老师不催你，你慢慢来。"
-  ❌"先不急。"→✅"我们先不着急。"
-- **动宾搭配必须通顺**：
-  ❌"带着重量"→✅"有很重的分量"/"本身就很重"
-  ❌"进行一个分析"→✅"分析"
-- **词法完整——使用完整词语**：
-  ❌"觉得倦了" → ✅"觉得疲倦了"
-  ❌"道出真相" → ✅"说出真相"
-  ❌"探知本质" → ✅"探索并了解本质"
-- **句法完整——句子成分完整 + 动宾搭配合理 + 充足修饰**：
-  ❌"我想与你探讨。"→✅"我想与你探讨这个问题。"
-  ❌"关于学习方面。"（悬空）→✅"在学习方面，要重视方法。"
-  ❌"我在这里听着你。"（病句）→✅"我就在这里听你说说。"
-- **介词规范**：介词必须带宾语，不得悬空、误用、缺失。
+
+## 语法规则约束（⭐ 必须遵守——以下规则会随规则集扩充）
+{rule_prompt}
 
 ## 你的任务
 把下面的 AI 生成文本改写为规范、朴素、有力量的语言。要求：
 1. **最小改动**：保留原意、事实、和已通顺的句子；只改有问题的部分，不重写整个风格
 2. 删掉 AI 痕迹（套话、廉价鼓励、空洞形容词、语气词堆砌）
 3. 句子变短，用词变具体
-4. **补全省略句**：所有省略主语/谓语的句子改成完整句式（纯祈使指令如"请做这道题"可保留）
+4. **应用通则**：遇到单字状态词（倦/乏/沉/累/苦/慌/虚/弱/低/烦/闷/困/急/乱）→ 自动扩展为完整词形；句子成分不全 → 自动补全（这是通则，不是记忆个别替换）
 5. **修正动宾搭配**：动宾不通的（"带着重量""进行一个分析"）改为自然搭配
-6. **补全省略词**：压缩/省略的词形改为完整词形（『倦』→『疲倦』『道出』→『说出来』）
-7. **补足悬空宾语 + 句子成分完整**：动词缺宾语的句子补足宾语；确保每句有完整的主谓宾/主系表结构
-8. **补充修饰成分与连接词**：用连接词（因为/所以/但是/同时/然后）标明逻辑关系
-9. 消除重复：重复说明同一观点的句子合并或删去冗余
-10. **不改变语气和人格**：保留原文本的温度和亲切感，只修正语法问题——不要改成生硬的书面语
-11. 直接输出改写后的文本，不要解释，不要加"改写如下"之类的话
-12. **保留 markdown 结构**：文本可能含 `### 标题`、`- 列表项`、`> 引用`、`**加粗**` 等结构。这些结构是刻意设计的内容骨架，**必须原样保留**——只修正措辞/语法，绝不删除任何 `###`/`-`/`>` 开头的段落或列表项。"""
+6. **补足悬空宾语 + 句子成分完整**：动词缺宾语的句子补足宾语；确保每句有完整的主谓宾/主系表结构
+7. **补充修饰成分与连接词**：用连接词（因为/所以/但是/同时/然后）标明逻辑关系
+8. 消除重复：重复说明同一观点的句子合并或删去冗余
+9. **不改变语气和人格**：保留原文本的温度和亲切感，只修正语法问题——不要改成生硬的书面语
+10. 直接输出改写后的文本，不要解释，不要加"改写如下"之类的话
+11. **保留 markdown 结构**：文本可能含 `### 标题`、`- 列表项`、`> 引用`、`**加粗**` 等结构。这些结构是刻意设计的内容骨架，**必须原样保留**——只修正措辞/语法，绝不删除任何 `###`/`-`/`>` 开头的段落或列表项。"""
 
 
 def make_refiner(*, chat_fn: ChatFn, llm=None, corpus_path: Optional[str] = None) -> LanguageRefiner:
