@@ -1,0 +1,42 @@
+{
+  "version": "0.1.0",
+  "description": "paeg-lang-style 可扩充语法规则集（用户可自由扩展 ⭐）。追加规则到 rules 数组即可热加载。",
+  "rules": [
+    {
+      "id": "rule-user-demo-001",
+      "type": "explicit",
+      "category": "lexical",
+      "pattern": "拉一拉",
+      "replacement": "拉动一下",
+      "message": "『拉一拉』是生造叠词短语，应改为自然动词（『拉动一下』）",
+      "severity": "medium",
+      "enabled": true,
+      "source": "user",
+      "profile_tags": ["general", "teaching"]
+    },
+    {
+      "id": "rule-user-demo-002",
+      "type": "explicit",
+      "category": "syntactic",
+      "pattern": "推一推",
+      "replacement": "推动一下",
+      "message": "『推一推』是生造叠词短语，应改为自然动词（『推动一下』）",
+      "severity": "medium",
+      "enabled": true,
+      "source": "user",
+      "profile_tags": ["general", "teaching"]
+    },
+    {
+      "id": "rule-user-demo-003",
+      "type": "general",
+      "category": "register",
+      "severity": "medium",
+      "enabled": true,
+      "source": "user",
+      "profile_tags": ["teaching"],
+      "prompt_block": "### 教学用语通则（用户扩展示例）\n对学生的评价要具体：不说『你真棒』，说『这一步你做对了，因为……』。不评判学生这个人，只讨论眼前这件事。",
+      "pattern": null,
+      "message": "教学评价应具体（不说空泛的『你真棒』）"
+    }
+  ]
+}
