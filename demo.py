@@ -116,7 +116,96 @@ def _demo_llm():
     print(f"  输出: {refiner.refine(text, max_rounds=1)}")
 
 
+def _demo_rule_registry():
+    """可扩充规则集演示（Oracle §3.109 ⭐）。"""
+    print("\n" + "=" * 60)
+    print("可扩充规则集 RuleRegistry（语法规则作为系统提示词核心）")
+    print("=" * 60)
+
+    from paeg_lang_style import RuleRegistry
+    reg = RuleRegistry()
+
+    print("\n[7] 规则集检测（通则层 + 列举层）")
+    for text in ["我在这里听着你。", "你有点倦，想和你探讨。", "复习单词。"]:
+        hits = reg.detect(text)
+        print(f"  '{text}'")
+        for h in hits:
+            print(f"    ⚠ 命中 #{h['id']}（{h['message'][:40]}…）")
+
+    print("\n[8] 系统提示词拼装（谁用都拼——按 profile）")
+    for profile in ("general", "teaching", "confessional"):
+        p = reg.build_prompt(profile)
+        print(f"  [{profile}] {len(p)} 字符（含 充分状语通则: {'充分状语' in p}）")
+
+    print("\n[9] 可扩充性（追加规则即热加载）")
+    reg.add_rule({
+        "id": "rule-user-demo",
+        "type": "explicit",
+        "category": "lexical",
+        "pattern": "示例黑话",
+        "replacement": "规范说法",
+        "message": "这是示例扩充规则",
+        "severity": "low",
+        "enabled": True,
+        "source": "user",
+    })
+    print(f"  新增后规则总数: {len(reg.all())}")
+    out = reg.apply_explicit("这是示例黑话。")
+    print(f"  确定性替换: '这是示例黑话。' → '{out}'")
+    reg.remove_rule("rule-user-demo")
+
+    print("\n[10] 充分状语通则（rule-sx-general-002）")
+    from paeg_lang_style.rules_enhanced import check_adverbial_general_rule
+    for text in ["复习单词。", "你可以在每天睡前用十分钟复习单词。"]:
+        issues = check_adverbial_general_rule(text)
+        print(f"  '{text}' → {'⚠ ' + issues[0][:40] + '…' if issues else '✓ 状语充分'}")
+
+
 if __name__ == "__main__":
     _demo_rules()
+    _demo_rule_registry()
     if "--with-llm" in sys.argv:
         _demo_llm()
+    """可扩充规则集演示（Oracle §3.109 ⭐）。"""
+    print("\n" + "=" * 60)
+    print("可扩充规则集 RuleRegistry（语法规则作为系统提示词核心）")
+    print("=" * 60)
+
+    from paeg_lang_style import RuleRegistry
+    reg = RuleRegistry()
+
+    print("\n[7] 规则集检测（通则层 + 列举层）")
+    for text in ["我在这里听着你。", "你有点倦，想和你探讨。", "复习单词。"]:
+        hits = reg.detect(text)
+        print(f"  '{text}'")
+        for h in hits:
+            print(f"    ⚠ 命中 #{h['id']}（{h['message'][:40]}…）")
+
+    print("\n[8] 系统提示词拼装（谁用都拼——按 profile）")
+    for profile in ("general", "teaching", "confessional"):
+        p = reg.build_prompt(profile)
+        print(f"  [{profile}] {len(p)} 字符（含 充分状语通则: {'充分状语' in p}）")
+
+    print("\n[9] 可扩充性（追加规则即热加载）")
+    reg.add_rule({
+        "id": "rule-user-demo",
+        "type": "explicit",
+        "category": "lexical",
+        "pattern": "示例黑话",
+        "replacement": "规范说法",
+        "message": "这是示例扩充规则",
+        "severity": "low",
+        "enabled": True,
+        "source": "user",
+    })
+    print(f"  新增后规则总数: {len(reg.all())}")
+    out = reg.apply_explicit("这是示例黑话。")
+    print(f"  确定性替换: '这是示例黑话。' → '{out}'")
+    reg.remove_rule("rule-user-demo")
+
+    print("\n[10] 充分状语通则（rule-sx-general-002）")
+    from paeg_lang_style.rules_enhanced import check_adverbial_general_rule
+    for text in ["复习单词。", "你可以在每天睡前用十分钟复习单词。"]:
+        issues = check_adverbial_general_rule(text)
+        print(f"  '{text}' → {'⚠ ' + issues[0][:40] + '…' if issues else '✓ 状语充分'}")
+
