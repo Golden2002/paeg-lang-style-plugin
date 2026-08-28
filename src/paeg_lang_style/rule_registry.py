@@ -303,6 +303,97 @@ BUILTIN_RULES: List[Dict[str, Any]] = [
     },
 ]
 
+# ═══════════════════════════════════════════════════════════
+# §3.116 ⭐ G-R1 基础级规则库（错别字/标点/格式 ≥50 条）
+# 对标表 P-01「基础级：错别字/标点/格式 ≥50 条」——确定性规则兜底
+# （元能力 L918：LLM 先判断、规则兜底；错别字是确定性可枚举的，用词表拦截）
+# ═══════════════════════════════════════════════════════════
+
+# 易错字词对照表（错误写法 → 正确写法）——明确误用，非两可
+_TYPO_FIXES = {
+    # 帐/账（"账"用于钱财，"帐"用于帐篷）
+    "帐号": "账号", "帐单": "账单", "结帐": "结账", "算帐": "算账",
+    "赖帐": "赖账", "帐目": "账目", "帐本": "账本", "转帐": "转账",
+    # 象/像（"像"用于相似/图像）
+    "好象": "好像", "图象": "图像", "录象": "录像", "影象": "影像",
+    "照象": "照相", "摄象": "摄像",
+    # 常见易错字
+    "按排": "安排", "按装": "安装", "脉博": "脉搏", "松驰": "松弛",
+    "精萃": "精粹", "凑和": "凑合", "既使": "即使", "重迭": "重叠",
+    "渡假": "度假", "了望": "瞭望", "讫今": "迄今", "座标": "坐标",
+    "坐谈": "座谈", "暴炸": "爆炸", "布署": "部署",
+    # 成语错别字
+    "一愁莫展": "一筹莫展", "再接再励": "再接再厉", "穿流不息": "川流不息",
+    "甘败下风": "甘拜下风", "自抱自弃": "自暴自弃", "一如继往": "一如既往",
+    "食不裹腹": "食不果腹", "迫不急待": "迫不及待", "世外桃园": "世外桃源",
+    "出奇不意": "出其不意", "走头无路": "走投无路", "金榜提名": "金榜题名",
+    "谈笑风声": "谈笑风生", "名符其实": "名副其实",
+}
+
+for _i, (_wrong, _right) in enumerate(_TYPO_FIXES.items(), 1):
+    BUILTIN_RULES.append({
+        "id": f"rule-typo-{_i:03d}",
+        "type": "explicit",
+        "category": "typo",
+        "pattern": _wrong,
+        "replacement": _right,
+        "message": f"『{_wrong}』是错别字，应为『{_right}』",
+        "severity": "medium",
+        "enabled": True,
+        "source": "builtin",
+        "profile_tags": ["general", "teaching", "confessional", "resume", "legal"],
+        "prompt_block": None,
+    })
+
+# 标点规范（GB/T 15834-2011 确定性兜底）
+_PUNCT_FIXES = [
+    (r"。{2,}", "。", "连续句号应为单个句号"),
+    (r"，{2,}", "，", "连续逗号应为单个逗号"),
+    (r"！{2,}", "！", "连续感叹号应为单个感叹号"),
+    (r"？{2,}", "？", "连续问号应为单个问号"),
+    (r"；{2,}", "；", "连续分号应为单个分号"),
+    (r"：{2,}", "：", "连续冒号应为单个冒号"),
+    (r"、{2,}", "、", "连续顿号应为单个顿号"),
+    (r"([。！？])，", r"\1", "句末点号后不应跟逗号"),
+]
+for _i, (_pat, _repl, _msg) in enumerate(_PUNCT_FIXES, 1):
+    BUILTIN_RULES.append({
+        "id": f"rule-pn-basic-{_i:03d}",
+        "type": "explicit",
+        "category": "punctuation",
+        "pattern": _pat,
+        "replacement": _repl,
+        "message": _msg,
+        "severity": "low",
+        "enabled": True,
+        "source": "builtin",
+        "profile_tags": ["general", "teaching", "resume", "legal"],
+        "prompt_block": None,
+    })
+
+# 格式规范（多余空格/空行）
+_FORMAT_FIXES = [
+    (r"[ \t]{2,}", " ", "连续空格应压缩为单个空格"),
+    (r"\n{3,}", "\n\n", "连续空行应压缩为单个空行"),
+    (r"([，。；：、！？])[ ]+", r"\1", "中文标点后不应有多余空格"),
+    (r"^[ \t]+", "", "段落首行不应有多余空格（用缩进样式而非空格）"),
+    (r"[ \t]+$", "", "行尾不应有多余空格"),
+]
+for _i, (_pat, _repl, _msg) in enumerate(_FORMAT_FIXES, 1):
+    BUILTIN_RULES.append({
+        "id": f"rule-fmt-basic-{_i:03d}",
+        "type": "explicit",
+        "category": "format",
+        "pattern": _pat,
+        "replacement": _repl,
+        "message": _msg,
+        "severity": "low",
+        "enabled": True,
+        "source": "builtin",
+        "profile_tags": ["general", "teaching", "resume", "legal"],
+        "prompt_block": None,
+    })
+
 
 # ─────────────────────────────────────
 # RuleRegistry：规则集管理（加载/合并/热重载/检测/拼装提示词）
