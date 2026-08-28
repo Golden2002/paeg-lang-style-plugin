@@ -163,6 +163,54 @@ def build_server() -> "FastMCP":
             for r in reg.all()
         ]
 
+    # ═══════════════════════════════════════════════════════════
+    # §3.116 ⭐ R3 MCP 三原语补全：resources + prompts（此前仅 tools）
+    # 生态插件铁则：Tools + Resources + Prompts 三类原语完整
+    # ═══════════════════════════════════════════════════════════
+
+    @mcp.resource("style-presets://list")
+    def style_presets_resource() -> str:
+        """文体预设列表（read-only 资源）。"""
+        from .style_presets import list_styles
+        return json.dumps(list_styles(), ensure_ascii=False)
+
+    @mcp.resource("term-whitelist://list")
+    def term_whitelist_resource() -> str:
+        """术语白名单（read-only 资源）。"""
+        from .term_guard import load_terms
+        return json.dumps(sorted(load_terms()), ensure_ascii=False)
+
+    @mcp.resource("rules://stats")
+    def rules_stats_resource() -> str:
+        """规则集统计（read-only 资源：总数 + 分类分布）。"""
+        from collections import Counter
+        reg = RuleRegistry()
+        _cats = Counter(r.get("category", "") for r in reg.all())
+        return json.dumps({"total": len(reg.all()), "by_category": dict(_cats)},
+                          ensure_ascii=False)
+
+    @mcp.prompt()
+    def proofread_workflow(text: str, style: str = "general") -> str:
+        """校对工作流模板（三级校对 + 文体适配）。"""
+        return (
+            f"请按三级校对体系校对以下文本（文体：{style}）：\n"
+            "1. 基础级：错别字/标点/格式识别与修正\n"
+            "2. 语法级：搭配不当/句式杂糅/语序不当/成分残缺\n"
+            "3. 语义级：逻辑矛盾/概念混淆/歧义/用词不当（不改变原文核心意思）\n\n"
+            f"待校对文本：\n{text}\n"
+        )
+
+    @mcp.prompt()
+    def report(trace_json: str) -> str:
+        """校对报告模板（修订痕迹 → 问题统计 + 建议）。"""
+        return (
+            "请根据修订痕迹生成校对报告：\n"
+            "1. 问题类型统计（by_type）\n"
+            "2. 每条修改的理由说明\n"
+            "3. 修改建议（供人工复核）\n\n"
+            f"修订痕迹：{trace_json}\n"
+        )
+
     return mcp
 
 
