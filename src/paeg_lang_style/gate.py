@@ -26,6 +26,23 @@ from .rules import fix_known_gaffes
 from .ai_taste import detect_ai_taste
 
 
+def preserve_check(original: str, revised: str, threshold: float = 0.95) -> dict:
+    """§3.116 ⭐ G-R7 原意保持校验：改写前后相似度 ≥ threshold 才算达标。
+
+    对标表 P-05「语义级改写约束 + 原意保持校验（相似度阈值 ≥95%），
+    不达标降级为"仅建议不自动替换"」。
+
+    相似度 = 字符级 SequenceMatcher 相似度（中文按字符，英文按字符序列）。
+    """
+    import difflib
+    if original == revised:
+        return {"ok": True, "similarity": 1.0}
+    if not original or not revised:
+        return {"ok": False, "similarity": 0.0}
+    sim = difflib.SequenceMatcher(None, original, revised).ratio()
+    return {"ok": sim >= threshold, "similarity": round(sim, 4)}
+
+
 def _apply_categories(text: str, categories: tuple) -> str:
     """§3.116 ⭐ G-R3 分级执行：应用指定类别的确定性规则（有 replacement 才替换）。
 
@@ -98,7 +115,11 @@ def gate_content(text: str, context: str = "", apply_l2: bool = True,
             if getattr(_sig, 'ai_likelihood', 0) >= 0.45:
                 _refined = refiner.refine(_out, context=context, max_rounds=1)
                 if _refined:
-                    _out = _refined
+                    # §3.116 ⭐ G-R7 原意保持：LLM 改写后相似度 ≥95% 才采用，
+                    # 否则回退原文（仅建议不自动替换——不改变原文核心意思）
+                    _pc = preserve_check(_out, _refined)
+                    if _pc["ok"]:
+                        _out = _refined
         except Exception:
             pass
     # ── 最终收口：病句规则再跑一遍（refine 改写可能重新引入悬空'听着你'）──
@@ -174,7 +195,7 @@ def proofread(text: str, context: str = "",
         return out
 
     _out = text
-    # 基础级 + 语义级（RuleRegistry 规则，精确记录 trace）
+    # 基础级 + 语义级（RuleRegistry 规则，精确记录 trace；确定性替换不需原意校验）
     if "basic" in levels:
         _out = protect_and_restore(_out, terms,
                                    lambda t: _apply_and_trace(("typo", "punctuation", "format"), t))
