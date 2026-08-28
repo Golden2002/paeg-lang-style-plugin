@@ -83,7 +83,7 @@ class TestBuildPrompt:
         """teaching profile 包含教学通则（用户扩展），confessional 不含。"""
         reg = RuleRegistry()
         # 加载用户扩展规则
-        rules_path = os.path.join(os.path.dirname(_SRC), "data", "rules.json")
+        rules_path = os.path.join(_SRC, "paeg_lang_style", "data", "rules.json")
         reg.load(rules_path)
         p_teach = reg.build_prompt("teaching")
         p_conf = reg.build_prompt("confessional")
@@ -120,7 +120,7 @@ class TestExtensibility:
     def test_load_json_merges(self):
         reg = RuleRegistry()
         n_before = len(reg.all())
-        rules_path = os.path.join(os.path.dirname(_SRC), "data", "rules.json")
+        rules_path = os.path.join(_SRC, "paeg_lang_style", "data", "rules.json")
         added = reg.load(rules_path)
         assert added >= 3  # 3 条用户扩展规则
         assert len(reg.all()) == n_before + 3
@@ -132,7 +132,7 @@ class TestExtensibility:
         """损坏 JSON 不"清空跑"（Oracle 风险规避）。"""
         reg = RuleRegistry()
         n_before = len(reg.all())
-        bad_path = os.path.join(os.path.dirname(_SRC), "data", "bad_rules_test.json")
+        bad_path = os.path.join(_SRC, "paeg_lang_style", "data", "bad_rules_test.json")
         with open(bad_path, "w", encoding="utf-8") as f:
             f.write("{ not valid json")
         try:
@@ -152,7 +152,7 @@ class TestExtensibility:
 
     def test_watch_reload(self):
         """mtime 变更触发重载。"""
-        rules_path = os.path.join(os.path.dirname(_SRC), "data", "rules.json")
+        rules_path = os.path.join(_SRC, "paeg_lang_style", "data", "rules.json")
         reg = RuleRegistry()
         reg.watch(rules_path)
         assert reg.check_reload() is False  # 未变更

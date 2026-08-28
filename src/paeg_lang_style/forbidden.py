@@ -146,7 +146,7 @@ class ForbiddenWords:
     def load_json(self, path: Optional[str] = None) -> int:
         """合并外部 JSON 违禁词库（动态维护 ⭐）。
 
-        JSON 结构：{"extra_forbidden": [...], "ai_tells_extra": [...]}
+        JSON 结构：{"extra_forbidden": [...], "pseudo_empathy_verbs": [...], "ai_tells_extra": [...]}
         返回新增词条数；文件缺失/损坏 → 0（不抛异常）。
         """
         if path is None:
@@ -157,7 +157,7 @@ class ForbiddenWords:
         except Exception:
             return 0
         added = 0
-        for key in ("extra_forbidden", "ai_tells_extra"):
+        for key in ("extra_forbidden", "pseudo_empathy_verbs", "ai_tells_extra"):
             for w in data.get(key, []):
                 if self.add(w):
                     added += 1

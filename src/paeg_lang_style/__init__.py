@@ -14,6 +14,7 @@
 对外 API（Oracle R10-R13）：
     gate_content(text, context="", apply_l2=True, refiner=None, polish_fn=None) -> str
     gate_short(text, context="", refiner=None, polish_fn=None) -> str
+    polish_text(text, context=None, refiner=None) -> str
     make_refiner(*, chat_fn, llm=None, corpus_path=None) -> LanguageRefiner
     get_style_prompt(section="all") -> str
     fix_known_gaffes(text) -> str
@@ -51,6 +52,7 @@ from .ai_taste import (
 from .forbidden import ForbiddenWords, _BUILTIN_FORBIDDEN
 from .refiner import LanguageRefiner, make_refiner
 from .gate import gate_content, gate_short
+from .polish import polish_text
 from .prompts.language_style import LANGUAGE_STYLE, get_style_prompt
 from .rules_enhanced import (
     check_lexicon_general_rule,
@@ -67,7 +69,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     # 核心 API
-    "gate_content", "gate_short",
+    "gate_content", "gate_short", "polish_text",
     "make_refiner", "LanguageRefiner",
     "get_style_prompt", "LANGUAGE_STYLE",
     # 规则

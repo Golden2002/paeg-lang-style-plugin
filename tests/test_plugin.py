@@ -114,9 +114,21 @@ class TestForbiddenWords:
 
     def test_load_json(self):
         fb = ForbiddenWords()
-        path = os.path.join(os.path.dirname(_SRC), "data", "forbidden_words.json")
+        path = os.path.join(_SRC, "paeg_lang_style", "data", "forbidden_words.json")
         added = fb.load_json(path)
         assert added >= 0  # 不抛异常，合并外部词库
+
+    def test_load_json_merges_three_categories(self):
+        """L-10：三类禁词（extra/pseudo_empathy/ai_tells_extra）合并。"""
+        fb = ForbiddenWords()
+        path = os.path.join(_SRC, "paeg_lang_style", "data", "forbidden_words.json")
+        fb.load_json(path)
+        assert fb.detect("被听见") == ["被听见"]
+
+    def test_load_json_default_path(self):
+        """L-10：无参 load_json() 加载包内默认词库（新增 >0）。"""
+        fb = ForbiddenWords()
+        assert fb.load_json() > 0
 
     def test_detect_empty(self):
         fb = ForbiddenWords()
@@ -183,6 +195,24 @@ class TestRefiner:
         out = r.refine("总的来说，我在这里听着你。让我们一起加油！", max_rounds=1)
         assert "听你说说" in out
 
+    def test_corpus_loaded_by_default(self):
+        """L-09：make_refiner 默认加载薇依语料（包内 data/weil_corpus.json）。"""
+        def mock_chat(system, user, max_tokens=800, **kw):
+            return user
+
+        r = make_refiner(chat_fn=mock_chat)
+        assert len(r.corpus) >= 6
+
+    def test_word_repetition(self):
+        """L-05：200 字窗口内核心词 ≥3 次触发同义词轮换建议；窗口外不触发。"""
+        r = make_refiner(chat_fn=lambda *a, **k: "")
+        issues = r._check_word_repetition("重量 重量 重量 真实 看见 感受")
+        assert issues  # 非空建议列表
+        assert any("重量" in i for i in issues)
+        # 窗口外（>200 字）不触发
+        long_text = "测" * 250 + "重量 重量 重量"
+        assert r._check_word_repetition(long_text) == []
+
 
 # ─────────────────────────────────────
 # 7. gate（P2 ⭐ 守门解耦）
@@ -209,3 +239,13 @@ class TestGate:
     def test_gate_empty(self):
         assert gate_content("") == ""
         assert gate_short("") == ""
+
+    def test_silent_fallback_on_exception(self):
+        """L-11：refine 抛异常 → gate_content 静默回退原文（不阻塞、不抛异常）。"""
+        class BoomRefiner:
+            def refine(self, text, context="", max_rounds=1):
+                raise RuntimeError("boom")
+
+        original = "总的来说，让我们一起赋能这个时代！"
+        out = gate_content(original, refiner=BoomRefiner())
+        assert out == original
