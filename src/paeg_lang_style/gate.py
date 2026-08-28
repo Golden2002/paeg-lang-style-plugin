@@ -121,7 +121,7 @@ def gate_short(text: str, context: str = "", refiner=None, polish_fn=None) -> st
 
 
 def proofread(text: str, context: str = "",
-              levels: Optional[tuple] = None) -> dict:
+              levels: Optional[tuple] = None, style: str = "general") -> dict:
     """§3.116 ⭐ G-R5 全流水线校对：返回修订痕迹 + 校对报告（可追溯输出）。
 
     对标表 P-04「修订痕迹（位置/原文/改文/理由/类型）+ 校对报告（问题类型统计）」。
@@ -129,6 +129,8 @@ def proofread(text: str, context: str = "",
     Args:
         text: 待校对文本。
         levels: 分级开关（默认 basic+grammar+semantic）。
+        style: 文体预设（academic/official/resume/legal/general）——G-R6 分领域适配，
+               决定术语保护领域（学术→学术术语、法律→法律术语、简历→简历术语）。
 
     Returns:
         {text(修正后), trace([{pos, original, revised, reason, type}]), report({by_type, total})}
@@ -136,12 +138,14 @@ def proofread(text: str, context: str = "",
     """
     from .rule_registry import RuleRegistry
     from .term_guard import load_terms, protect_and_restore
-    result = {"text": text, "trace": [], "report": {"by_type": {}, "total": 0}}
+    from .style_presets import style_term_domains
+    result = {"text": text, "trace": [], "report": {"by_type": {}, "total": 0},
+              "style": style}
     if not text or not text.strip():
         return result
     levels = tuple(levels) if levels else ("basic", "grammar", "semantic")
     reg = RuleRegistry()
-    terms = load_terms()
+    terms = load_terms(domains=style_term_domains(style))
 
     def _apply_and_trace(categories: tuple, target: str) -> str:
         out = target

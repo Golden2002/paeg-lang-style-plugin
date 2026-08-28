@@ -42,20 +42,24 @@ def _default_path() -> str:
                         "data", "term_whitelist.json")
 
 
-def load_terms(path: str = None) -> Set[str]:
-    """加载术语白名单（JSON 优先，缺失时内置兜底）。"""
+def load_terms(path: str = None, domains: List[str] = None) -> Set[str]:
+    """加载术语白名单（JSON 优先，缺失时内置兜底）。
+
+    §3.116 ⭐ G-R6 文体适配：domains 指定领域过滤（None=全领域；[]=通用无术语）。
+    """
     terms: Set[str] = set()
     p = path or _default_path()
     try:
         with open(p, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            for lst in data.values():
-                if isinstance(lst, list):
-                    terms.update(str(t).strip() for t in lst if str(t).strip())
+            for domain, lst in data.items():
+                if domains is None or domain in domains:
+                    if isinstance(lst, list):
+                        terms.update(str(t).strip() for t in lst if str(t).strip())
     except Exception:
         pass
-    if not terms:
+    if not terms and (domains is None or not domains):
         for lst in _BUILTIN_TERMS.values():
             terms.update(t for t in lst)
     return {t for t in terms if len(t) >= 2}
