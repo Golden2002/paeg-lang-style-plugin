@@ -27,22 +27,32 @@ from .ai_taste import detect_ai_taste
 
 
 def _apply_categories(text: str, categories: tuple) -> str:
-    """§3.116 ⭐ G-R3 分级执行：应用指定类别的确定性规则（有 replacement 才替换）。"""
+    """§3.116 ⭐ G-R3 分级执行：应用指定类别的确定性规则（有 replacement 才替换）。
+
+    §3.116 ⭐ G-R4 术语保护：白名单词（法律/学术/简历/医学术语）先用占位符隔离，
+    规则替换后还原——术语不参与替换，误改率 0。
+    """
     try:
         from .rule_registry import RuleRegistry
+        from .term_guard import load_terms, protect_and_restore
         reg = RuleRegistry()
-        out = text
-        for r in reg.explicit_rules():
-            if r.get("category") not in categories:
-                continue
-            pat = r.get("pattern")
-            repl = r.get("replacement")
-            if not pat or not repl:
-                continue  # 无 replacement 的检测型规则（语义矛盾/歧义）不自动替换
-            cp = reg._compile(r.get("id", ""), pat)
-            if cp is not None:
-                out = cp.sub(repl, out)
-        return out
+        terms = load_terms()
+
+        def _replace(t: str) -> str:
+            out = t
+            for r in reg.explicit_rules():
+                if r.get("category") not in categories:
+                    continue
+                pat = r.get("pattern")
+                repl = r.get("replacement")
+                if not pat or not repl:
+                    continue  # 无 replacement 的检测型规则不自动替换
+                cp = reg._compile(r.get("id", ""), pat)
+                if cp is not None:
+                    out = cp.sub(repl, out)
+            return out
+
+        return protect_and_restore(text, terms, _replace)
     except Exception:
         return text
 
