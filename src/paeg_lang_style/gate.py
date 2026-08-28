@@ -118,3 +118,76 @@ def gate_short(text: str, context: str = "", refiner=None, polish_fn=None) -> st
         except Exception:
             return _out
     return fix_known_gaffes(_out)
+
+
+def proofread(text: str, context: str = "",
+              levels: Optional[tuple] = None) -> dict:
+    """§3.116 ⭐ G-R5 全流水线校对：返回修订痕迹 + 校对报告（可追溯输出）。
+
+    对标表 P-04「修订痕迹（位置/原文/改文/理由/类型）+ 校对报告（问题类型统计）」。
+
+    Args:
+        text: 待校对文本。
+        levels: 分级开关（默认 basic+grammar+semantic）。
+
+    Returns:
+        {text(修正后), trace([{pos, original, revised, reason, type}]), report({by_type, total})}
+        每条修改可定位（pos 为修正前位置）、可解释（reason/type）。
+    """
+    from .rule_registry import RuleRegistry
+    from .term_guard import load_terms, protect_and_restore
+    result = {"text": text, "trace": [], "report": {"by_type": {}, "total": 0}}
+    if not text or not text.strip():
+        return result
+    levels = tuple(levels) if levels else ("basic", "grammar", "semantic")
+    reg = RuleRegistry()
+    terms = load_terms()
+
+    def _apply_and_trace(categories: tuple, target: str) -> str:
+        out = target
+        for r in reg.explicit_rules():
+            if r.get("category") not in categories:
+                continue
+            pat = r.get("pattern")
+            repl = r.get("replacement")
+            if not pat or not repl:
+                continue
+            cp = reg._compile(r.get("id", ""), pat)
+            if cp is None:
+                continue
+
+            def _sub(m, _repl=repl, _r=r):
+                _orig = m.group(0)
+                result["trace"].append({
+                    "pos": m.start(), "original": _orig, "revised": _repl,
+                    "reason": _r.get("message", ""), "type": _r.get("category", ""),
+                })
+                _t = _r.get("category", "")
+                result["report"]["by_type"][_t] = result["report"]["by_type"].get(_t, 0) + 1
+                return _repl
+
+            out = cp.sub(_sub, out)
+        return out
+
+    _out = text
+    # 基础级 + 语义级（RuleRegistry 规则，精确记录 trace）
+    if "basic" in levels:
+        _out = protect_and_restore(_out, terms,
+                                   lambda t: _apply_and_trace(("typo", "punctuation", "format"), t))
+    if "semantic" in levels:
+        _out = protect_and_restore(_out, terms,
+                                   lambda t: _apply_and_trace(("semantic",), t))
+    # 语法级（病句 fix_known_gaffes——前后对比记录 trace）
+    if "grammar" in levels:
+        _before = _out
+        _out = fix_known_gaffes(_out)
+        if _out != _before:
+            result["trace"].append({
+                "pos": 0, "original": _before, "revised": _out,
+                "reason": "语法级病句修正（fix_known_gaffes）", "type": "grammar",
+            })
+            _t = "grammar"
+            result["report"]["by_type"][_t] = result["report"]["by_type"].get(_t, 0) + 1
+    result["text"] = _out
+    result["report"]["total"] = len(result["trace"])
+    return result
