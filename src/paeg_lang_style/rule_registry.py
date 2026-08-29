@@ -435,6 +435,63 @@ for _i, (_pat, _repl, _msg) in enumerate(_SEMANTIC_FIXES, 1):
     })
 
 
+# ═══════════════════════════════════════════════════════════
+# §3.116 ⭐ 语用层规则（敬语/语体/语气——Oracle 调研补齐，对标蜜度文修语用校对）
+# ═══════════════════════════════════════════════════════════
+_PRAGMATIC_FIXES = [
+    # 敬语混用（同一对象"你/您"前后不一致）
+    (r"您[^。；]{0,8}你|你[^。；]{0,8}您", None, "『您/你』敬语混用，同一对象应统一称呼"),
+    # 口语化程度词（正式文本不宜）
+    (r"(?:贼|忒|挺|蛮|倍儿)(?:好|棒|厉害|不错|强)", None, "口语化程度词（贼/忒/挺/蛮/倍儿）不宜用于正式文本，建议改书面语"),
+    # 口语化动词
+    (r"(?:搞定|弄个|整个|搞个|整明白)", None, "口语化动词（搞定/弄个/整明白）建议改书面语（完成/处理/弄清）"),
+    # 句尾语气词
+    (r"(?:啦|喽|嘞|呗|嘛|哈)(?=[，。；！？])", None, "句尾语气词（啦/喽/呗/嘛）不宜用于正式书面文本"),
+]
+
+for _i, (_pat, _repl, _msg) in enumerate(_PRAGMATIC_FIXES, 1):
+    BUILTIN_RULES.append({
+        "id": f"rule-pg-{_i:03d}",
+        "type": "explicit",
+        "category": "pragmatic",
+        "pattern": _pat,
+        "replacement": _repl,
+        "message": _msg,
+        "severity": "low",
+        "enabled": True,
+        "source": "builtin",
+        "profile_tags": ["general", "teaching", "resume", "legal"],
+        "prompt_block": None,
+    })
+
+# ═══════════════════════════════════════════════════════════
+# §3.116 ⭐ 篇章层规则（衔接/连贯——Oracle 调研补齐，对标蜜度文修篇章校对）
+# ═══════════════════════════════════════════════════════════
+_DISCOURSE_FIXES = [
+    # 转折词连用（"但是然而"冗余转折）
+    (r"(?:但是|然而|可是|不过)\s*(?:但是|然而|可是|不过)", None, "转折词连用（『但是然而』）冗余，保留一个即可"),
+    # 递进结构不完整（"不仅…"缺"而且/还"）
+    (r"不仅[^，。；]{1,15}(?:，|,)[^而也]", None, "『不仅…』缺少呼应（应接『而且/还』），递进结构不完整"),
+    # 总结词与内容重复（"总而言之"后接"总的来说"）
+    (r"(?:总而言之|综上所述|总的来说)[^。；]{0,6}(?:总而言之|综上所述|总的来说)", None, "总结词连用冗余，保留一个"),
+]
+
+for _i, (_pat, _repl, _msg) in enumerate(_DISCOURSE_FIXES, 1):
+    BUILTIN_RULES.append({
+        "id": f"rule-ds-{_i:03d}",
+        "type": "explicit",
+        "category": "discourse",
+        "pattern": _pat,
+        "replacement": _repl,
+        "message": _msg,
+        "severity": "medium",
+        "enabled": True,
+        "source": "builtin",
+        "profile_tags": ["general", "teaching", "resume", "legal"],
+        "prompt_block": None,
+    })
+
+
 # ─────────────────────────────────────
 # RuleRegistry：规则集管理（加载/合并/热重载/检测/拼装提示词）
 # ─────────────────────────────────────
