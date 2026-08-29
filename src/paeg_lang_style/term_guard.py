@@ -59,9 +59,15 @@ def load_terms(path: str = None, domains: List[str] = None) -> Set[str]:
                         terms.update(str(t).strip() for t in lst if str(t).strip())
     except Exception:
         pass
-    if not terms and (domains is None or not domains):
-        for lst in _BUILTIN_TERMS.values():
-            terms.update(t for t in lst)
+    # JSON 缺失时用内置兜底：domains=None → 全领域；指定领域 → 该领域内置；
+    # domains=[]（通用文体，无术语保护）→ 保持为空，不兜底全领域。
+    if not terms:
+        if domains is None:
+            for lst in _BUILTIN_TERMS.values():
+                terms.update(t for t in lst)
+        elif domains:
+            for d in domains:
+                terms.update(t for t in _BUILTIN_TERMS.get(d, []))
     return {t for t in terms if len(t) >= 2}
 
 

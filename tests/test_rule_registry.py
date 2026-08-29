@@ -45,9 +45,19 @@ class TestRuleDetect:
         assert any(h["id"] == "rule-sx-001" for h in hits)
 
     def test_detect_lexicon(self):
+        """词法完整通则不设 pattern（避免误报'辛苦/麻烦/困难'等复合词），
+        单字状态词检测由 rules_enhanced.check_lexicon_general_rule 负责。"""
+        from paeg_lang_style.rules_enhanced import check_lexicon_general_rule
         reg = RuleRegistry()
-        hits = reg.detect("你有点倦，想和你探讨。")
-        assert any(h["id"] == "rule-lx-general-001" for h in hits)  # 通则层带 pattern 检测
+        # 通则层 rule-lx-general-001 为 prompt-only（pattern=None）
+        rule = reg.by_id("rule-lx-general-001")
+        assert rule["type"] == "general"
+        assert rule.get("pattern") is None
+        # 单字状态词（倦）由复合词掩码法检测到
+        assert any("倦" in i and "疲倦" in i for i in check_lexicon_general_rule("你有点倦，想和你探讨。"))
+        # 完整复合词（辛苦/困难）不误报
+        assert check_lexicon_general_rule("他工作很辛苦。") == []
+        assert check_lexicon_general_rule("学习遇到困难很正常。") == []
 
     def test_detect_clean(self):
         reg = RuleRegistry()

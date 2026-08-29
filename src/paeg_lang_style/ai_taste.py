@@ -42,7 +42,7 @@ AI_MARKERS = {
     # v0.16：AI 味形容词（"稳了"类——过度自信的口语化断言）
     "稳了", "拿捏了", "拿捏", "妥了", "没跑了", "就完事了", "妥妥的",
     "稳稳的", "完全没问题", "绝对没问题", "轻松拿下", "稳了稳了",
-    "真的绝了", "绝了", "天秀", "神了", "牛", "牛啊", "绝绝子",
+    "真的绝了", "绝了", "天秀", "神了", "牛啊", "绝绝子",
     "yyds", "YYDS", "秒懂", "狠狠", "狠狠拿捏",
     "非常棒", "棒极了", "太给力了", "给力",
     # AI 喜欢的高大上形容词
@@ -206,8 +206,14 @@ def count_three_lists(text: str) -> int:
 
 
 def count_em_dashes(text: str) -> int:
-    """破折号数量（AI 偏爱多连用）。"""
-    return len(re.findall(r"—", text)) + len(re.findall(r"——", text))
+    """破折号数量（AI 偏爱多连用）。
+
+    中文破折号"——"（两个连接号）算作一个破折号；西文 em-dash"—"也算作一个。
+    避免把"——"重复计数为 3 个。
+    """
+    cn = len(re.findall(r"——", text))
+    rest = re.sub(r"——", "", text)
+    return cn + len(re.findall(r"—", rest))
 
 
 def measure_paragraph_symmetry(text: str) -> float:

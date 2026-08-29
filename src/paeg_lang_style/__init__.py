@@ -51,7 +51,7 @@ from .ai_taste import (
 )
 from .forbidden import ForbiddenWords, _BUILTIN_FORBIDDEN
 from .refiner import LanguageRefiner, make_refiner
-from .gate import gate_content, gate_short
+from .gate import gate_content, gate_short, proofread
 from .polish import polish_text
 from .prompts.language_style import LANGUAGE_STYLE, get_style_prompt
 from .rules_enhanced import (
@@ -69,7 +69,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     # 核心 API
-    "gate_content", "gate_short", "polish_text",
+    "gate_content", "gate_short", "polish_text", "proofread",
     "make_refiner", "LanguageRefiner",
     "get_style_prompt", "LANGUAGE_STYLE",
     # 规则

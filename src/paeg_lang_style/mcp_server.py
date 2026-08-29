@@ -62,7 +62,7 @@ except ImportError:
     FastMCP = None  # 未装 fastmcp 时软失败（不阻塞库导入）
 
 from . import (
-    gate_content, gate_short, fix_known_gaffes, check_ellipsis,
+    gate_content, gate_short, proofread, fix_known_gaffes, check_ellipsis,
     detect_ai_taste, ForbiddenWords, get_style_prompt,
     RuleRegistry, make_refiner, LanguageRefiner,
 )
@@ -147,8 +147,8 @@ def build_server() -> "FastMCP":
         section ∈ {all, weil, lexicon, syntax, forbidden}；
         profile ∈ {general, teaching, confessional}——规则集按场景过滤。"""
         parts = []
-        if section != "all":
-            parts.append(get_style_prompt(section))
+        # "all" 也应返回全量语言风格提示词（get_style_prompt("all") 含 weil/lexicon/syntax/forbidden 四段）
+        parts.append(get_style_prompt(section))
         reg = RuleRegistry()
         parts.append(reg.build_prompt(profile=profile))
         return "\n\n".join(parts)
@@ -162,6 +162,17 @@ def build_server() -> "FastMCP":
             {k: r.get(k) for k in ("id", "type", "category", "severity", "enabled", "source", "profile_tags")}
             for r in reg.all()
         ]
+
+    @mcp.tool()
+    def proofread(text: str, style: str = "general", levels: Optional[list] = None) -> dict:
+        """全流水线校对（三级校对 + 文体适配），返回修订痕迹 + 结构化校对报告。
+        style ∈ {academic, official, resume, legal, general}；
+        levels 可选子集（默认 ["basic","grammar","semantic"]）。
+        返回 {id, ts, domain, levels, source_text, text, trace, report}，
+        其中 trace 每条含 pos/original/revised/reason/type/rule_id，可逐条定位与解释。"""
+        from .gate import proofread as _proofread
+        _lv = tuple(levels) if levels else None
+        return _proofread(text, levels=_lv, style=style)
 
     # ═══════════════════════════════════════════════════════════
     # §3.116 ⭐ R3 MCP 三原语补全：resources + prompts（此前仅 tools）

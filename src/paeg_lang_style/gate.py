@@ -20,6 +20,7 @@ None 时跳过 L2 路径（纯规则守门），由宿主项目注入 refiner �
 
 from __future__ import annotations
 
+import difflib
 from typing import Optional
 
 from .rules import fix_known_gaffes
@@ -141,78 +142,142 @@ def gate_short(text: str, context: str = "", refiner=None, polish_fn=None) -> st
     return fix_known_gaffes(_out)
 
 
+def _term_spans(text: str, terms) -> list:
+    """计算术语白名单词在原文中的字符区间（长词优先，避免子串截断）。"""
+    import re as _re
+    spans = []
+    for term in sorted(terms, key=len, reverse=True):
+        for m in _re.finditer(_re.escape(term), text):
+            spans.append((m.start(), m.end()))
+    return spans
+
+
+def _overlaps(start: int, end: int, spans: list) -> bool:
+    return any(s < end and e > start for s, e in spans)
+
+
 def proofread(text: str, context: str = "",
               levels: Optional[tuple] = None, style: str = "general") -> dict:
     """§3.116 ⭐ G-R5 全流水线校对：返回修订痕迹 + 校对报告（可追溯输出）。
 
     对标表 P-04「修订痕迹（位置/原文/改文/理由/类型）+ 校对报告（问题类型统计）」。
+    数据模型对齐 docs/05_技术架构设计 §5 ProofreadResult：
+    {id, ts, domain, levels, source_text, text, trace, report{by_type, total, suggestions, preserved_score}}。
 
     Args:
         text: 待校对文本。
         levels: 分级开关（默认 basic+grammar+semantic）。
-        style: 文体预设（academic/official/resume/legal/general）——G-R6 分领域适配，
-               决定术语保护领域（学术→学术术语、法律→法律术语、简历→简历术语）。
+        style: 文体预设（academic/official/resume/legal/general）——G-R6 分领域适配。
 
     Returns:
-        {text(修正后), trace([{pos, original, revised, reason, type}]), report({by_type, total})}
-        每条修改可定位（pos 为修正前位置）、可解释（reason/type）。
+        dict：修正后文本 + 逐条修订痕迹 + 结构化校对报告。
+        检测型规则（replacement 为空的语义/语用/篇章规则）记入 report.suggestions，
+        不自动替换（语义级不改变原意）。
     """
+    import time
+    import uuid
     from .rule_registry import RuleRegistry
-    from .term_guard import load_terms, protect_and_restore
+    from .term_guard import load_terms
     from .style_presets import style_term_domains
-    result = {"text": text, "trace": [], "report": {"by_type": {}, "total": 0},
-              "style": style}
+
+    _levels = list(levels) if levels else ["basic", "grammar", "semantic"]
+    result = {
+        "id": uuid.uuid4().hex[:12],
+        "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "domain": style,
+        "style": style,
+        "levels": _levels,
+        "source_text": text,
+        "text": text,
+        "trace": [],
+        "report": {"by_type": {}, "total": 0, "suggestions": [], "preserved_score": 1.0},
+    }
     if not text or not text.strip():
         return result
-    levels = tuple(levels) if levels else ("basic", "grammar", "semantic")
+    levels = tuple(_levels)
     reg = RuleRegistry()
     terms = load_terms(domains=style_term_domains(style))
+    spans = _term_spans(text, terms)  # 术语白名单区间（G-R4：术语不参与替换）
+
+    suggestions = []
 
     def _apply_and_trace(categories: tuple, target: str) -> str:
+        """应用指定类别的确定性规则并记录 trace；返回新文本。
+
+        - 有 replacement 的规则：替换 + 记 trace（用 m.expand 正确展开 \\1 反向引用）。
+        - 无 replacement 的检测型规则：命中记入 suggestions，不修改文本。
+        """
         out = target
         for r in reg.explicit_rules():
             if r.get("category") not in categories:
                 continue
             pat = r.get("pattern")
             repl = r.get("replacement")
-            if not pat or not repl:
+            if not pat:
                 continue
             cp = reg._compile(r.get("id", ""), pat)
             if cp is None:
                 continue
+            if repl is None or repl == "":
+                for m in cp.finditer(out):
+                    if _overlaps(m.start(), m.end(), spans):
+                        continue
+                    suggestions.append({
+                        "pos": m.start(), "original": m.group(0),
+                        "reason": r.get("message", ""), "type": r.get("category", ""),
+                        "rule_id": r.get("id"),
+                    })
+                continue
 
             def _sub(m, _repl=repl, _r=r):
-                _orig = m.group(0)
+                if _overlaps(m.start(), m.end(), spans):
+                    return m.group(0)  # 术语保护：命中落在白名单内，不改
+                revised = m.expand(_repl)  # 处理 \\1 等反向引用，避免写入字面量
                 result["trace"].append({
-                    "pos": m.start(), "original": _orig, "revised": _repl,
+                    "pos": m.start(), "original": m.group(0), "revised": revised,
                     "reason": _r.get("message", ""), "type": _r.get("category", ""),
+                    "rule_id": _r.get("id"),
                 })
                 _t = _r.get("category", "")
                 result["report"]["by_type"][_t] = result["report"]["by_type"].get(_t, 0) + 1
-                return _repl
+                return revised
 
             out = cp.sub(_sub, out)
         return out
 
     _out = text
-    # 基础级 + 语义级（RuleRegistry 规则，精确记录 trace；确定性替换不需原意校验）
     if "basic" in levels:
-        _out = protect_and_restore(_out, terms,
-                                   lambda t: _apply_and_trace(("typo", "punctuation", "format"), t))
+        _out = _apply_and_trace(("typo", "punctuation", "format"), _out)
     if "semantic" in levels:
-        _out = protect_and_restore(_out, terms,
-                                   lambda t: _apply_and_trace(("semantic",), t))
-    # 语法级（病句 fix_known_gaffes——前后对比记录 trace）
+        # 语义级含检测型规则（replacement 为空 → 仅建议）；语用/篇章层一并检测提示
+        _out = _apply_and_trace(("semantic", "pragmatic", "discourse"), _out)
     if "grammar" in levels:
         _before = _out
         _out = fix_known_gaffes(_out)
         if _out != _before:
-            result["trace"].append({
-                "pos": 0, "original": _before, "revised": _out,
-                "reason": "语法级病句修正（fix_known_gaffes）", "type": "grammar",
-            })
-            _t = "grammar"
-            result["report"]["by_type"][_t] = result["report"]["by_type"].get(_t, 0) + 1
+            # 用 difflib 生成细粒度病句修订痕迹（逐处定位）；合并相邻的非 equal 操作块
+            _merged = []
+            for _op in difflib.SequenceMatcher(None, _before, _out).get_opcodes():
+                if _op[0] == "equal":
+                    continue
+                if _merged and _merged[-1]["i2"] == _op[1]:
+                    _merged[-1]["i2"] = _op[2]
+                    _merged[-1]["j2"] = _op[4]
+                else:
+                    _merged.append({"i1": _op[1], "i2": _op[2], "j1": _op[3], "j2": _op[4]})
+            for _m in _merged:
+                result["trace"].append({
+                    "pos": _m["i1"], "original": _before[_m["i1"]:_m["i2"]],
+                    "revised": _out[_m["j1"]:_m["j2"]],
+                    "reason": "语法级病句修正（fix_known_gaffes）", "type": "grammar",
+                })
+                _t = "grammar"
+                result["report"]["by_type"][_t] = result["report"]["by_type"].get(_t, 0) + 1
     result["text"] = _out
     result["report"]["total"] = len(result["trace"])
+    result["report"]["suggestions"] = suggestions
+    # 原意保持：确定性替换基本不改动语义，按字符相似度给出可参考分数
+    if text and _out:
+        result["report"]["preserved_score"] = round(
+            difflib.SequenceMatcher(None, text, _out).ratio(), 4)
     return result
